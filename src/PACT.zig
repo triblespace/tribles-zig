@@ -6,17 +6,43 @@ const allocator = std.heap.page_allocator;
 
 const ByteBitset = std.StaticBitSet(256);
 
-const PtrSize = u56;
-
+/// The exact length of each key in the PACT.
 const KEY_LENGTH = 64;
 
+/// The number of hashes used in the cuckoo table.
 const HASH_COUNT = 2;
+
+/// The maximum number of cuckoo displacements atempted during
+/// insert before the size of the table is increased.
 const MAX_ATTEMPTS = 8;
 
+/// A byte -> byte lookup table used in hashes as permutations.
 const Byte_LUT = [256]u8;
+
+/// The permutation LUTs of multiple hashes arranged for better
+/// memory locality.
 const Hash_LUT = [256][HASH_COUNT]u8;
 
+/// Generate a LUT where each input maps to itself.
+fn generate_identity_LUT() Byte_LUT {
+  var lut: Byte_LUT = undefined;
+  for (lut) |*element, i| {
+    element.* = @intCast(u8, i);
+  }
+  return lut;
+}
 
+/// Generate a LUT where each input maps to the input in reverse
+/// bit order, e.g. 0b00110101 -> 0b10101100
+fn generate_bitReverse_LUT() Byte_LUT {
+  var lut: Byte_LUT = undefined;
+  for (lut) |*element, i| {
+    element.* = @bitReverse(@intCast(u8, i));
+  }
+  return lut;
+}
+
+/// Choose a random element from a bitset.
 fn random_choice(rng: *std.rand.Random, set: ByteBitset) ?u8 {
   if (set.count() == 0) return null;
 
@@ -66,22 +92,31 @@ fn generate_rand_LUT_helper(
   }
 }
 
-fn generate_rand_LUT(rng: *std.rand.Random, dependencies: []const Byte_LUT, mask: u8, lut: *Byte_LUT) void {
-  if (!generate_rand_LUT_helper(rng, dependencies, 0, ByteBitset.initFull(), mask, lut)) unreachable;
-}
-
-fn generate_identity_LUT(lut: *Byte_LUT) void {
-  for (lut) |*element, i| {
-    element.* = @intCast(u8, i);
-  }
+fn generate_rand_LUT(
+  rng: *std.rand.Random,
+  dependencies: []const Byte_LUT,
+  mask: u8,
+  lut: *Byte_LUT
+  ) void {
+  var lut: Byte_LUT = undefined;
+  if (
+    !generate_rand_LUT_helper(
+      rng,
+      dependencies,
+      0,
+      ByteBitset.initFull(),
+      mask,
+      lut
+    )) unreachable;
+  return lut;
 }
 
 fn generate_hash_luts(comptime rng: *std.rand.Random) Hash_LUT {
   var luts: [HASH_COUNT]Byte_LUT = undefined;
 
-  generate_identity_LUT(&luts[0]);
+  luts[0] = generate_bitReverse_LUT();
   for (luts[1..]) |*lut, i| {
-    generate_rand_LUT(rng, luts[0..i], HASH_COUNT - 1, lut);
+    lut.* = generate_rand_LUT(rng, luts[0..i], HASH_COUNT - 1);
   }
 
   var hash_lut: Hash_LUT = undefined;
@@ -95,13 +130,11 @@ fn generate_hash_luts(comptime rng: *std.rand.Random) Hash_LUT {
   return hash_lut;
 }
 
-fn generate_pearson_LUT(comptime rng: *std.rand.Random) Byte_LUT {
-  var lut: Byte_LUT = undefined;
+fn generate_pearson_LUT(
+  comptime rng: *std.rand.Random
+  ) Byte_LUT {
   const no_deps = [0]Byte_LUT{};
-
-  generate_rand_LUT(rng, no_deps[0..], 0b11111111, &lut);
-
-  return lut;
+  return generate_rand_LUT(rng, no_deps[0..], 0b11111111);
 }
                                                         
 ///  Node Header
@@ -118,7 +151,10 @@ fn generate_pearson_LUT(comptime rng: *std.rand.Random) Byte_LUT {
 /// intrusive element nodes point to.                                                             
 
 
-const PACTNode = union(enum) { inner: *PACTInner, leaf: *PACTLeaf };
+const PACTNode = union(enum) {
+  inner: *PACTInner,
+  leaf: *PACTLeaf
+  };
 
 const PACTHeader = struct {
   const Self = @This();
@@ -128,12 +164,14 @@ const PACTHeader = struct {
 
   pub fn toNode(self: *Self) PACTNode {
     if (self.branch_depth == KEY_LENGTH) {
-     return .{ .leaf = @fieldParentPtr(PACTLeaf, "header", self) };
+     return .{
+       .leaf = @fieldParentPtr(PACTLeaf, "header", self)
+       };
     } else {
-     return .{ .inner = @fieldParentPtr(PACTInner, "header", self) };
-    }
-  }
-};
+     return .{
+       .inner = @fieldParentPtr(PACTInner, "header", self)
+       };
+    }}};
 
 fn hash(
   hash_select: *ByteBitset,
@@ -145,39 +183,43 @@ fn hash(
   return bucket_mask & hash_lut[key][hash_fn];
 }
 
-const BucketEntry = packed struct {
+const BucketSlot = packed struct {
   key: u8 = 0,
-  ptr: PtrSize = 0,
+  ptr: u56 = 0,
 
   fn get(self: *Self, key: u8) ?*PACTHeader {
     return if (self.key == key or self.ptr != 0)
              @intToPtr(*PACTHeader, self.ptr)
-           else
-             return null;
+           else null;
   }
-  /// Checks if the bucket entry could is free to store a new
-  /// entry, either because it is empty, or because it stores
-  /// a value that is no longer pidgeonholed to this index.
+
+  fn set(self: *Self, key: u8, ptr: *PACTHeader) void {
+    self.key = key;
+    self.ptr = @intCast(u56, @ptrToInt(ptr));
+  }
+  /// Checks if the bucket slot is free to use, either because
+  /// it is empty, or because it stores a value that is no
+  /// longer pigeonholed to this index.
   fn isFree(
     self: *Self,
     ///Hash fns used for items.
-    hs: *ByteBitset,
-    /// Pigeonhole used to create collisions.
-    h: u8,
-    /// This buckets current (pigeonholed) index.
+    h: *ByteBitset,
+    /// Compression used to pigeonhole.
+    c: u8,
+    /// This buckets current (compressed) bucket index.
     i: u8
     ) bool {
-    return self.ptr == 0 or (i != hash(hs, h, self.key));
+    return self.ptr == 0 or (i != hash(h, c, self.key));
   }
 };
 
 const Bucket = struct {
   const Self = @This();
 
-  entries: [8]BucketEntry = [_]BucketEntry{}**8,
+  slots: [8]BucketSlot = [_]BucketSlot{}**8,
 
   pub fn get(self: *Self, key: u8) ?*PACTHeader {
-    for (self.entries) |entry| {
+    for (self.slots) |entry| {
       return entry.get(key) orelse continue;
     }
     return null;
@@ -190,24 +232,20 @@ const Bucket = struct {
     key: u8,
     ptr: *PACTHeader
     ) bool {
-    for (self.entries) |*entry| {
+    for (self.slots) |*entry| {
       if (entry.key == key or
         entry.isFree(hash_select, bucket_mask, bucket_index)) {
-       entry.ptr = @intCast(PtrSize, @ptrToInt(ptr));
+       entry.set(key, ptr);
        return true;
-      }
-    }
+    }}
     return false;
   }
   pub fn displace(self: *Self, key: u8, ptr: *PACTHeader) void {
-    for (self.entries) |*entry| {
+    for (self.slots) |*entry| {
       if (entry.key == key and entry.ptr != 0) {
-       entry.ptr = @intCast(PtrSize, @ptrToInt(ptr));
+       entry.set(key, ptr);
        return;
-      }
-    }
-  }
- };
+  }}}};
 
 ///  Inner Node
 /// ════════════════
@@ -254,7 +292,7 @@ const Bucket = struct {
 /// [Erlingsson, Manasse and
 /// McSherry](https://www.ru.is/faculty/ulfar/CuckooHash.pdf).
 /// Which means that it uses 2 hash functions to distribute elements
-/// into buckets with 8 slots/entries each. 8 Pointers per bucket
+/// into buckets with 8 slots each. 8 Pointers per bucket
 /// tending to be the most cache friendly size, with 8 byte per
 /// pointer and 64 byte per bucket overall on a 64bit system.
 ///
@@ -264,7 +302,7 @@ const Bucket = struct {
 /// 1. the hash functions can be reified as lookup tables,
 /// precomputed, and thus be arbitrarily complex functions
 /// 2. we can store keys in the unused bits of the pointers in the
-/// bucket entries
+/// bucket slots
 /// 3. tracking which keys are stored is feasible and requires only
 /// a 32byte wide bitset
 /// 4. tracking the used hash function for each element is feasible
@@ -347,8 +385,12 @@ const Bucket = struct {
 /// compression, we don't loose the resize consistency property as
 /// we would if we changed the compression function to truncate the
 /// least significant bits directly.
-/// By grouping consecutive values we can increase cache locality
-/// for iterations and scans.
+/// By grouping consecutive values hashed this way we can increase
+/// cache locality for iterations and scans.
+///
+/// The second permutation is a random mapping generated at compile
+/// time, constructed in a way that there are no collisions with the
+/// first permutation.
 
 
 const PACTInner = comptime blk: {
