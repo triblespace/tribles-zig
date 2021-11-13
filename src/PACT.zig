@@ -96,7 +96,6 @@ fn generate_rand_LUT(
   rng: *std.rand.Random,
   dependencies: []const Byte_LUT,
   mask: u8,
-  lut: *Byte_LUT
   ) void {
   var lut: Byte_LUT = undefined;
   if (
@@ -111,7 +110,7 @@ fn generate_rand_LUT(
   return lut;
 }
 
-fn generate_hash_luts(comptime rng: *std.rand.Random) Hash_LUT {
+fn generate_hash_LUTs(comptime rng: *std.rand.Random) Hash_LUT {
   var luts: [HASH_COUNT]Byte_LUT = undefined;
 
   luts[0] = generate_bitReverse_LUT();
@@ -172,80 +171,6 @@ const PACTHeader = struct {
        .inner = @fieldParentPtr(PACTInner, "header", self)
        };
     }}};
-
-fn hash(
-  hash_select: *ByteBitset,
-  bucket_mask: u8,
-  hash_lut: Hash_LUT,
-  key: u8
-  ) u8 {
-  const hash_fn = if(hash_select.isSet(key)) 0 else 1;
-  return bucket_mask & hash_lut[key][hash_fn];
-}
-
-const BucketSlot = packed struct {
-  key: u8 = 0,
-  ptr: u56 = 0,
-
-  fn get(self: *Self, key: u8) ?*PACTHeader {
-    return if (self.key == key or self.ptr != 0)
-             @intToPtr(*PACTHeader, self.ptr)
-           else null;
-  }
-
-  fn set(self: *Self, key: u8, ptr: *PACTHeader) void {
-    self.key = key;
-    self.ptr = @intCast(u56, @ptrToInt(ptr));
-  }
-  /// Checks if the bucket slot is free to use, either because
-  /// it is empty, or because it stores a value that is no
-  /// longer pigeonholed to this index.
-  fn isFree(
-    self: *Self,
-    ///Hash fns used for items.
-    h: *ByteBitset,
-    /// Compression used to pigeonhole.
-    c: u8,
-    /// This buckets current (compressed) bucket index.
-    i: u8
-    ) bool {
-    return self.ptr == 0 or (i != hash(h, c, self.key));
-  }
-};
-
-const Bucket = struct {
-  const Self = @This();
-
-  slots: [8]BucketSlot = [_]BucketSlot{}**8,
-
-  pub fn get(self: *Self, key: u8) ?*PACTHeader {
-    for (self.slots) |entry| {
-      return entry.get(key) orelse continue;
-    }
-    return null;
-  }
-  pub fn put(
-    self: *Self,
-    hash_select: *ByteBitset,
-    bucket_mask: u8,
-    bucket_index: u8,
-    key: u8,
-    ptr: *PACTHeader
-    ) bool {
-    for (self.slots) |*entry| {
-      if (entry.key == key or
-        entry.isFree(hash_select, bucket_mask, bucket_index)) {
-       entry.set(key, ptr);
-       return true;
-    }}
-    return false;
-  }
-  pub fn displace(self: *Self, key: u8, ptr: *PACTHeader) void {
-    for (self.slots) |*entry| {
-      if (entry.key == key and entry.ptr != 0) {
-       entry.set(key, ptr);
-       return;
-  }}}};
 
 ///  Inner Node
 /// ════════════════
@@ -393,18 +318,130 @@ const Bucket = struct {
 /// first permutation.
 
 
-const PACTInner = comptime blk: {
-  @setEvalBranchQuota(1000000);
-  var rand_state = std.rand.Xoroshiro128.init(0);
-  const hash_lut = generate_hash_lut(&rand_state.random);
-  const rand_lut = generate_pearson_LUT(&rand_state.random);
-
-  break :blk struct {
+const PACTInner = struct {
     const Self = @This();
-    var random: u8 = 0;
-    /// Note that the initial []buckets size needs to be >= |hash_LUTS|.
-    /// This is to ensure that resized can't result in other hash functions pointing to now
-    /// invalid buckets with false positively matching keys.
+    
+    comptime const rand_lut = comptime blk: {
+      @setEvalBranchQuota(1000000);
+      var rand_state = std.rand.Xoroshiro128.init(0);
+      break :blk generate_pearson_LUT(&rand_state.random);
+    }
+    /// Hashes the value provided with the selected permuation
+    /// and provided compression.
+    fn hash(
+        /// Selects the permutation used.
+        p: u8,
+        /// Compression used to pigeonhole.
+        c: u8,
+        /// The value to hash.
+        v: u8
+      ) u8 {
+      @setEvalBranchQuota(1000000);
+      comptime var rand = std.rand.Xoroshiro128.init(0);
+      comptime const luts = generate_hash_LUTs(&rand.random);
+      return c & luts[v][p];
+    }
+
+    const Bucket = struct {
+      const Self = @This();
+
+      const Slot = packed struct {
+        /// The key stored in this slot.
+        key: u8 = 0,
+        /// The address of the pointer associated with the key.
+        ptr: u56 = 0,
+
+        /// Check if the slot holds a value for the provided key.
+        fn has(self: *Self, key: u8) bool {
+          return self.key == key and self.ptr != 0;
+        }
+        /// Try to return the pointer stored in this slot iff it
+        /// matches the provided key.
+        fn get(self: *Self, key: u8) ?*PACTHeader {
+          return if (self.has(key))
+                  @intToPtr(*PACTHeader, self.ptr)
+                 else null;
+        }
+
+        /// Store the key and associated pointer in this slot.
+        fn set(self: *Self, key: u8, ptr: *PACTHeader) bool {
+          self.key = key;
+          self.ptr = @intCast(u56, @ptrToInt(ptr));
+        }
+
+        /// Checks if the bucket slot is free to use, either
+        /// because it is empty, or because it stores a value
+        /// that is no longer pigeonholed to this index.
+        fn isFree(
+          self: *Self,
+          ///Answers which hash is used for each item.
+          h: *ByteBitset,
+          /// Compression used to pigeonhole.
+          c: u8,
+          /// This buckets current (compressed) bucket index.
+          i: u8
+          ) bool {
+          return self.ptr == 0 or
+            (i != hash(if(h.isSet(key)) 0 else 1, c, self.key));
+        }};
+
+
+      slots: [8]Slot = [_]Slot{}**8,
+
+      /// Attempts to retrieve the value stored  
+      pub fn get(self: *Self, key: u8) ?*PACTHeader {
+        for (self.slots) |entry| {
+          return entry.get(key) orelse continue;
+        }
+        return null;
+      }
+
+      /// Attempts to store a new key and pointer in this buckt,
+      /// the key must not exist in this bucket beforehand.
+      /// If there is no free slot the attempt will fail.
+      /// Returns true iff it succeeds.
+      pub fn put(
+        self: *Self,
+        /// Determines the hash function used for each key and
+        /// is used to detect outdated (free) slots.
+        hash_select: *ByteBitset,
+        /// The current compression mask used by the hash
+        /// functions used to detect outdated (free) slots.
+        compression: u8,
+        /// The current index the bucket has.
+        /// used to detect outdated (free) slots.
+        bucket_index: u8,
+        /// The key to be stored in the bucket.
+        key: u8,
+        /// The pointer to be stored for the key.
+        ptr: *PACTHeader
+        ) bool {
+        for (self.slots) |*slot| {
+          if (
+            slot.has(key) or
+            slot.isFree(hash_select, compression, bucket_index)
+          ) {
+           slot.set(key, ptr);
+           return true;
+        }}
+        return false;
+      }
+
+      /// Updates the pointer for the key stored in this bucket.
+      pub fn update(self: *Self,
+        /// The key to be updated.
+        key: u8,
+        /// The new pointer value.
+        ptr: *PACTHeader
+        ) void {
+        for (self.slots) |*slot| {
+          if (slot.has(key)) {
+           slot.set(key, ptr);
+           return;
+      }}}};
+
+
+    var random: u8 = 4; // Chosen by fair dice roll.
     header: PACTHeader,
     key: u8[KEY_LENGTH],
     bucket_mask: u8 = 0,
@@ -508,7 +545,6 @@ const PACTInner = comptime blk: {
      return null;
     }
   };
-};
 
 
 ///  Leaf Node                          
