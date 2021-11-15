@@ -9,6 +9,10 @@ const ByteBitset = std.StaticBitSet(256);
 /// The exact length of each key in the PACT.
 const KEY_LENGTH = 64;
 
+/// The Tries branching factor, fixed to the number of elements
+/// that can be represented by a byte/8bit.
+const BRANCH_FACTOR = 256;
+
 /// The number of hashes used in the cuckoo table.
 const HASH_COUNT = 2;
 
@@ -159,7 +163,7 @@ const PACTHeader = struct {
   const Self = @This();
 
   branch_depth: u8,
-  refcount: u32,
+  refcount: u32 = 1,
 
   pub fn toNode(self: *Self) PACTNode {
     if (self.branch_depth == KEY_LENGTH) {
@@ -331,7 +335,9 @@ const PACTInner = struct {
     fn hash(
         /// Selects the permutation used.
         p: u8,
-        /// Compression used to pigeonhole.
+        /// Bucket count to parameterize the compression used to
+        /// pigeonhole the items.
+        /// Must be a power of 2.
         c: u8,
         /// The value to hash.
         v: u8
@@ -339,32 +345,34 @@ const PACTInner = struct {
       @setEvalBranchQuota(1000000);
       comptime var rand = std.rand.Xoroshiro128.init(0);
       comptime const luts = generate_hash_LUTs(&rand.random);
-      return c & luts[v][p];
+      const mask = p-1;
+      return mask & luts[v][p];
     }
 
     const Bucket = struct {
+      const SLOT_COUNT = 8;
       const Self = @This();
 
-      const Slot = packed struct {
-        /// The key stored in this slot.
+      const Entry = packed struct {
+        /// The key stored in this entry.
         key: u8 = 0,
         /// The address of the pointer associated with the key.
         ptr: u56 = 0,
 
-        /// Check if the slot holds a value for the provided key.
+        /// Check if the entry has a value for the provided key.
         fn has(self: *Self, key: u8) bool {
           return self.key == key and self.ptr != 0;
         }
-        /// Try to return the pointer stored in this slot iff it
-        /// matches the provided key.
+        /// Try to return the pointer stored in this entry iff
+        /// it matches the provided key.
         fn get(self: *Self, key: u8) ?*PACTHeader {
           return if (self.has(key))
                   @intToPtr(*PACTHeader, self.ptr)
                  else null;
         }
 
-        /// Store the key and associated pointer in this slot.
-        fn set(self: *Self, key: u8, ptr: *PACTHeader) bool {
+        /// Store the key and associated pointer in this entry.
+        fn set(self: *Self, key: u8, ptr: *PACTHeader) void {
           self.key = key;
           self.ptr = @intCast(u56, @ptrToInt(ptr));
         }
@@ -376,9 +384,9 @@ const PACTInner = struct {
           self: *Self,
           ///Answers which hash is used for each item.
           h: *ByteBitset,
-          /// Compression used to pigeonhole.
+          /// Current bucket count.
           c: u8,
-          /// This buckets current (compressed) bucket index.
+          /// This buckets current index.
           i: u8
           ) bool {
           return self.ptr == 0 or
@@ -386,17 +394,17 @@ const PACTInner = struct {
         }};
 
 
-      slots: [8]Slot = [_]Slot{}**8,
+      slots: [SLOT_COUNT]Entry = [_]Entry{}**SLOT_COUNT,
 
       /// Attempts to retrieve the value stored  
       pub fn get(self: *Self, key: u8) ?*PACTHeader {
-        for (self.slots) |entry| {
-          return entry.get(key) orelse continue;
+        for (self.slots) |slot| {
+          return slot.get(key) orelse continue;
         }
         return null;
       }
 
-      /// Attempts to store a new key and pointer in this buckt,
+      /// Attempt to store a new key and pointer in this bucket,
       /// the key must not exist in this bucket beforehand.
       /// If there is no free slot the attempt will fail.
       /// Returns true iff it succeeds.
@@ -405,23 +413,21 @@ const PACTInner = struct {
         /// Determines the hash function used for each key and
         /// is used to detect outdated (free) slots.
         hash_select: *ByteBitset,
-        /// The current compression mask used by the hash
-        /// functions used to detect outdated (free) slots.
-        compression: u8,
+        /// The current bucket count.
+        /// Is used to detect outdated (free) slots.
+        bucket_count: u8,
         /// The current index the bucket has.
-        /// used to detect outdated (free) slots.
+        /// Is used to detect outdated (free) slots.
         bucket_index: u8,
-        /// The key to be stored in the bucket.
-        key: u8,
-        /// The pointer to be stored for the key.
-        ptr: *PACTHeader
+        /// The entry to be stored in the bucket.
+        entry: Entry
         ) bool {
         for (self.slots) |*slot| {
           if (
-            slot.has(key) or
-            slot.isFree(hash_select, compression, bucket_index)
+            slot.has(entry.key) or
+            slot.isFree(hash_select, bucket_count, bucket_index)
           ) {
-           slot.set(key, ptr);
+           slot.* = Entry;
            return true;
         }}
         return false;
@@ -429,35 +435,52 @@ const PACTInner = struct {
 
       /// Updates the pointer for the key stored in this bucket.
       pub fn update(self: *Self,
-        /// The key to be updated.
-        key: u8,
-        /// The new pointer value.
-        ptr: *PACTHeader
+        /// The new entry value.
+        entry: Entry,
         ) void {
         for (self.slots) |*slot| {
-          if (slot.has(key)) {
-           slot.set(key, ptr);
+          if (slot.has(entry.key)) {
+           slot.* = entry;
            return;
-      }}}};
+      }}}
+      
+      /// Displaces an existing slot with the .
+      pub fn displace(self: *Self,
+        /// A random value to determine the slot to displace.
+        random: u8,
+        /// The entry that displaces an existing entry.
+        ) Entry {
+        const index = random & (SLOT_COUNT - 1);
+        const prev = self.slots[index];
+        self.slots[index] = entry;
+        return prev;
+      }}};
 
-
+    const max_bucket_count = BRANCH_FACTOR / Bucket.SLOT_COUNT;
     var random: u8 = 4; // Chosen by fair dice roll.
     header: PACTHeader,
-    key: u8[KEY_LENGTH],
-    bucket_mask: u8 = 0,
+    bucket_count: u8 = 1,
+    count: u40,
+    segment_count: u40,
+    keySegment: u8[32],
     child_set: ByteBitset = ByteBitset.initEmpty(),
+    hash_set: ByteBitset = ByteBitset.initEmpty(),
 
     pub fn init(
       branch_depth: u8,
       key: *u8[KEY_LENGTH]
     ) *Self {
     const raw = allocator.alloc(u8, @sizeOf(Self) +
-                                    @sizeOf(Bucket))
+                                    @sizeOf([1]Bucket))
                   catch unreachable;
     const new = @ptrCast(Self, raw);
-    new.* = Self{.header = PACTHeader{.branch_depth=branch_depth,
-                                 .refcount = 1}),
-           .key = key.*};
+    new.* = Self{
+              .header = PACTHeader{.branch_depth=branch_depth},
+              .keySegment = undefined};
+    const segmentLength = @minimum(branch_depth, 32);
+    const segmentStart = 32-segmentLength
+    const keyStart = branch_depth-segmentLength
+    new.key[segmentStart..32] = key[keyStart..branch_depth];
     for(new.bucketSlice()) |*bucket| {
      bucket.* = Bucket{};
     }
@@ -466,77 +489,67 @@ const PACTInner = struct {
 
     fn putBranch(self: *Self, key: u8, value: *PACTHeader) *Self {
      const buckets = self.bucketSlice();
-     var ptr = @intCast(u40, @ptrCast(value));
+     var entry: Entry = undefined;
+     entry.set(key, value);
      
-     var attempts: u8 = 0;
-     while(true) {
-     random = rand_lut[random ^ key];
-     const bucket_hashes = hash_lut[key];
-     inline for (bucket_hashes) |*hash| {
-       hash &= self.bucket_mask;
-     }
-     inline for (bucket_hashes) |bucket| {
-       if(buckets[bucket].key == key or buckets[bucket].ptr == 0) {
-           buckets[bucket].key = key;
-           buckets[bucket].ptr = ptr;
-           return;
-       }
-       const free = true;
-       inline for (hash_lut[bucket.key]) |hash| {
-           if(bucket == hash & self.bucket_mask) {
-               free = false;
-               break;
-           }
-       }
-       if(free) {
-           buckets[bucket].key = key;
-           buckets[bucket].ptr = ptr;
-           return;
-       }
-     }
-     const displaced = if(self.bucket_mask == 0xFF) 0 else bucket_hashes[random & HASH_COUNT-1];
-     const displaced_key = buckets[displaced].key;
-     const displaced_ptr = buckets[displaced].ptr;
-     buckets[displaced].key = key;
-     buckets[displaced].ptr = ptr;
-     key = displaced_key;
-     ptr = displaced_ptr;
-
-     if(self.bucket_mask != 0xFF) attempts += 1;
-     if(attempts == MAX_ATTEMPTS) {
-       attempts = 0;
-       self = self.grow();
-     }
-     }
+     if(self.child_set.isSet(key)) {
+       const index = hash(
+                      if(self.hash_set.isSet(key)) 0 else 1,
+                      self.bucket_count,
+                      key);
+       buckets[index].update(entry);
+     } else {
+        var attempts: u8 = 0;
+        while(true) {
+          random = rand_lut[random ^ entry.key];
+          const hash_index = if(
+            self.bucket_count == max_bucket_count
+            ) 0 else random & 1;
+          const bucket_index = hash(
+            hash_index,
+            self.bucket_count,
+            key);
+          if(buckets[bucket_index].put(
+            self.hash_set,
+            self.bucket_count,
+            bucket_index,
+            entry)) break;
+          entry = buckets[bucket_index].displace(rand, entry);
+          if(self.bucket_count != max_bucket_count) {
+            attempts += 1;
+            if(attempts == MAX_ATTEMPTS) {
+              attempts = 0;
+              self = self.grow();
+      }}}}
      return self;
     }
 
     fn grow(self: *Self, mutable: bool) *Self {
-    const raw = allocator.alloc(u8, @sizeOf(Self) + @sizeOf(Bucket) * HASH_COUNT) catch unreachable;
-    const new = @ptrCast(Self, raw);
-    new.* = Self{.header = PACTHeader{.branch_depth=branch_depth,
-                                 .refcount = 1}),
-           .key = key.*};
-    for(new.bucketSlice()) |*bucket| {
-     bucket.* = Bucket{};
-    }
-    return new;
+      self.bucket_count += 1;
+      const raw = allocator.realloc(u8, self,
+        @sizeOf(Self) + @sizeOf(Bucket) * self.bucket_count
+        ) catch unreachable;
+      const new = @ptrCast(Self, raw);
+      const buckets = new.bucketSlice();
+      std.mem.copy(Bucket,
+        buckets[0..bucket_count/2],
+        buckets[bucket_count/2..bucket_count]);
+      return new;
     }
 
     fn bucketSlice(self: *Self) []Bucket {
      const ptr = @intToPtr([*]Bucket, @ptrToInt(self) + @sizeOf(Self));
-     const end = self.bucket_mask + 1;
-     return ptr[0..end];
+     return ptr[0..self.bucket_count];
     }
 
-    pub fn put(self: *Self, key: u8, ptr: *PACTHeader) void {
+    pub fn put(self: *Self, depth: u8, key: u8, ptr: *PACTHeader) void {
 
     }
     pub fn get(self: *Self, key: u8) ?*PACTHeader {
      if (self.child_set.isSet(key)) {
        const hashes = hash_lut[key];
        inline for (hashes) |hash| {
-           const bucket = self.bucketSlice()[hash & self.bucket_mask];
+           const bucket = self.bucketSlice()[hash & self.compression_mask];
            if (bucket.key == key and bucket.ptr != 0) {
                return @intToPtr(*PACTHeader, bucket.ptr);
            }
