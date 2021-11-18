@@ -462,7 +462,7 @@ const PACTInner = struct {
     bucket_count: u8 = 1,
     count: u40,
     segment_count: u40,
-    keySegment: u8[32],
+    key_segment: u8[32],
     child_set: ByteBitset = ByteBitset.initEmpty(),
     hash_set: ByteBitset = ByteBitset.initEmpty(),
 
@@ -476,7 +476,7 @@ const PACTInner = struct {
     const new = @ptrCast(Self, raw);
     new.* = Self{
               .header = PACTHeader{.branch_depth=branch_depth},
-              .keySegment = undefined};
+              .key_segment = undefined};
     const segmentLength = @minimum(branch_depth, 32);
     const segmentStart = 32-segmentLength
     const keyStart = branch_depth-segmentLength
@@ -542,10 +542,13 @@ const PACTInner = struct {
      return ptr[0..self.bucket_count];
     }
 
+
+
+
     pub fn put(self: *Self, depth: u8, key: u8, ptr: *PACTHeader) void {
 
     }
-    pub fn get(self: *Self, key: u8) ?*PACTHeader {
+    pub fn get(self: *Self, depth: u8, key: u8) ?*PACTHeader {
      if (self.child_set.isSet(key)) {
        const hashes = hash_lut[key];
        inline for (hashes) |hash| {
