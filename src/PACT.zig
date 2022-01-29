@@ -1,10 +1,9 @@
 const std = @import("std");
-const packedBS = @import("./PackedArrayBitSet.zig");
 const assert = std.debug.assert;
 const expect = std.testing.expect;
 const mem = std.mem;
 
-const ByteBitset = packedBS.ArrayBitSet(usize, 256);
+const ByteBitset = std.StaticBitSet(256);
 
 /// The Tries branching factor, fixed to the number of elements
 /// that can be represented by a byte/8bit.
@@ -38,13 +37,13 @@ fn generate_identity_LUT() Byte_LUT {
 fn generate_bitReverse_LUT() Byte_LUT {
     var lut: Byte_LUT = undefined;
     for (lut) |*element, i| {
-        element.* = @bitReverse(u8, i);
+        element.* = @bitReverse(u8, @intCast(u8, i));
     }
     return lut;
 }
 
 /// Choose a random element from a bitset.
-fn random_choice(rng: *std.rand.Random, set: ByteBitset) ?u8 {
+fn random_choice(rng: std.rand.Random, set: ByteBitset) ?u8 {
     if (set.count() == 0) return null;
 
     var possible_values: [256]u8 = undefined;
@@ -60,7 +59,7 @@ fn random_choice(rng: *std.rand.Random, set: ByteBitset) ?u8 {
     return possible_values[rand_index];
 }
 
-fn generate_rand_LUT_helper(rng: *std.rand.Random, dependencies: []const Byte_LUT, i: usize, remaining: ByteBitset, mask: u8, lut: *Byte_LUT) bool {
+fn generate_rand_LUT_helper(rng: std.rand.Random, dependencies: []const Byte_LUT, i: usize, remaining: ByteBitset, mask: u8, lut: *Byte_LUT) bool {
     if (i == 256) return true;
 
     var candidates = remaining;
@@ -86,16 +85,16 @@ fn generate_rand_LUT_helper(rng: *std.rand.Random, dependencies: []const Byte_LU
 }
 
 fn generate_rand_LUT(
-    rng: *std.rand.Random,
+    rng: std.rand.Random,
     dependencies: []const Byte_LUT,
     mask: u8,
-) void {
+) Byte_LUT {
     var lut: Byte_LUT = undefined;
-    if (!generate_rand_LUT_helper(rng, dependencies, 0, ByteBitset.initFull(), mask, lut)) unreachable;
+    if (!generate_rand_LUT_helper(rng, dependencies, 0, ByteBitset.initFull(), mask, &lut)) unreachable;
     return lut;
 }
 
-fn generate_hash_LUTs(comptime rng: *std.rand.Random) Hash_LUT {
+fn generate_hash_LUTs(comptime rng: std.rand.Random) Hash_LUT {
     var luts: [HASH_COUNT]Byte_LUT = undefined;
 
     luts[0] = generate_bitReverse_LUT();
@@ -114,7 +113,7 @@ fn generate_hash_LUTs(comptime rng: *std.rand.Random) Hash_LUT {
     return hash_lut;
 }
 
-fn generate_pearson_LUT(comptime rng: *std.rand.Random) Byte_LUT {
+fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
     const no_deps = [0]Byte_LUT{};
     return generate_rand_LUT(rng, no_deps[0..], 0b11111111);
 }
@@ -125,7 +124,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
 
         const Node = union(NodeType) { inner: *InnerNode, leaf: *LeafNode };
 
-        const PACTHeader = packed struct {
+        const PACTHeader = struct {
             refcount: u16 = 1,
             type_tag: NodeType,
             branch_depth: u8,
@@ -138,11 +137,11 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             }
         };
 
-        const InnerNode = packed struct {
+        const InnerNode = struct {
             const rand_lut = blk: {
                 @setEvalBranchQuota(1000000);
                 var rand_state = std.rand.Xoroshiro128.init(0);
-                break :blk generate_pearson_LUT(&rand_state.random);
+                break :blk generate_pearson_LUT(rand_state.random());
             };
             /// Hashes the value provided with the selected permuation and provided compression.
             fn hash(
@@ -155,15 +154,15 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             ) u8 {
                 @setEvalBranchQuota(1000000);
                 comptime var rand = std.rand.Xoroshiro128.init(0);
-                const luts = generate_hash_LUTs(&rand.random);
+                const luts = generate_hash_LUTs(comptime rand.random());
                 const mask = c - 1;
                 return mask & luts[v][p];
             }
 
-            const Bucket = packed struct {
+            const Bucket = struct {
                 const SLOT_COUNT = 8;
 
-                const Entry = packed struct {
+                const Entry = struct {
                     /// The address of the pointer associated with the key.
                     ptr: u48 align(@alignOf(u64)) = 0,
                     /// The key stored in this entry.
@@ -171,12 +170,12 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                     padding: u8 = 0,
 
                     /// Check if the entry has a value for the provided key.
-                    fn has(self: *Entry, key: u8) bool {
+                    fn has(self: *const Entry, key: u8) bool {
                         return self.key == key and self.ptr != 0;
                     }
                     /// Try to return the pointer stored in this entry iff
                     /// it matches the provided key.
-                    fn get(self: *Entry, key: u8) ?*PACTHeader {
+                    fn get(self: *const Entry, key: u8) ?*PACTHeader {
                         return if (self.has(key))
                             @intToPtr(*PACTHeader, self.ptr)
                         else
@@ -206,7 +205,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 slots: [SLOT_COUNT]Entry = undefined,
 
                 /// Attempts to retrieve the value stored  
-                pub fn get(self: *Bucket, key: u8) ?*PACTHeader {
+                pub fn get(self: *const Bucket, key: u8) ?*PACTHeader {
                     for (self.slots) |slot| {
                         return slot.get(key) orelse continue;
                     }
@@ -271,7 +270,8 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             const max_bucket_count = BRANCH_FACTOR / Bucket.SLOT_COUNT;
             var random: u8 = 4; // Chosen by fair dice roll.
             header: PACTHeader,
-            bucket_count: u16 = 1,
+            padding: u8 = 0,
+            bucket_count: u8 = 1,
             count: u40,
             segment_count: u40,
             key_infix: [32]u8,
@@ -295,6 +295,22 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                     bucket.* = Bucket{};
                 }
                 return new;
+            }
+
+            fn deinit(self: *InnerNode) {
+                var child_iterator = self.child_set.iterator(.{.direction = .ascending});
+                while(child_iterator.next()) |child_byte_key| {
+                    self.cuckooGet(child_byte_key);
+                }
+                allocator.free(self);
+            }
+
+            pub fn ref() {
+
+            }
+
+            pub fn rel() {
+
             }
 
             fn putBranch(self: *InnerNode, key: u8, value: *PACTHeader) *InnerNode {
@@ -325,7 +341,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return self;
             }
 
-            fn grow(self: *@This(), copy: bool) *@This() {
+            fn grow(self: *InnerNode, copy: bool) *@This() {
                 _ = copy;
                 self.bucket_count = self.bucket_count << 1;
                 const raw = allocator.realloc(u8, self, @sizeOf(@This()) + @sizeOf(Bucket) * self.bucket_count) catch unreachable;
@@ -335,35 +351,40 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return new;
             }
 
-            fn bucketSlice(self: *@This()) []Bucket {
+            fn bucketSlice(self: *InnerNode) []Bucket {
                 const ptr = @intToPtr([*]Bucket, @ptrToInt(self) + @sizeOf(@This()));
                 return ptr[0..self.bucket_count];
             }
 
-            pub fn put(self: *@This(), depth: u8, key: u8, ptr: *PACTHeader) void {
+            fn cuckooGet(self: *InnerNode, depth: u8, key: u8) *PACTHeader {
+                const bucketIndex = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
+                return self.bucketSlice()[bucketIndex].get(key);
+            }
+
+            pub fn put(self: *InnerNode, depth: u8, key: u8, ptr: *PACTHeader) void {
                 _ = self;
                 _ = depth;
                 _ = key;
                 _ = ptr;
             }
-            pub fn get(self: *@This(), depth: u8, key: u8) ?*PACTHeader {
+
+            pub fn get(self: *InnerNode, depth: u8, key: u8) ?*PACTHeader {
                 if (depth < self.header.branch_depth) {
                     const index: u8 = (depth + @as(u8, self.key_infix.len)) - self.header.branch_depth;
                     const infix_key = self.key_infix[index];
                     if (infix_key == key) {
-                        return self;
+                        return &self.header;
                     }
                 } else {
                     if (self.child_set.isSet(key)) {
-                        const bucketIndex = hash(if (self.hash_select.isSet(key)) 0 else 1, self.bucket_count, key);
-                        return self.bucketSlice()[bucketIndex].get(key);
+                        return self.cuckooGet(key);
                     }
                 }
                 return null;
             }
         };
 
-        const LeafNode = packed struct {
+        const LeafNode = struct {
             header: PACTHeader,
             key: [key_length]u8,
             value: T,
@@ -430,6 +451,7 @@ test "put nothing -> get nothing" {
     const PACT = makePACT(trible_length, usize, std.testing.allocator);
     var key = [_]u8{0} ** trible_length;
     var inner = PACT.InnerNode.init(32, &key);
+    defer inner.rel();
     var node = PACT.Node{ .inner = inner };
     try expect(node.inner.get(0, 0) == null);
 }
