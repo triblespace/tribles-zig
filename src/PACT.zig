@@ -120,19 +120,57 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
 
 fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Allocator) type {
     return struct {
-        const NodeType = enum(u8) { inner, leaf };
+        const Node = union(NodeHeader) { inner: *InnerNode, leaf: *LeafNode };
 
-        const Node = union(NodeType) { inner: *InnerNode, leaf: *LeafNode };
+        const NodeHeader = enum(u8) {
+            inner, leaf,
 
-        const PACTHeader = struct {
-            refcount: u16 = 1,
-            type_tag: NodeType,
-            branch_depth: u8,
-
-            pub fn toNode(self: *PACTHeader) Node {
-                return switch (self.type_tag) {
+            pub fn toNode(self: *NodeHeader) Node {
+                return switch (self.*) {
                     .leaf => .{ .leaf = @fieldParentPtr(LeafNode, "header", self) },
                     .inner => .{ .inner = @fieldParentPtr(InnerNode, "header", self) },
+                };
+            }
+                        
+            pub fn ref(self: *NodeHeader) !void {
+                try switch(self.toNode()) {
+                    .inner => |node| node.ref(),
+                    .leaf => |node| node.ref(),
+                };
+            }
+                        
+            pub fn rel(self: *NodeHeader) void {
+                switch(self.toNode()) {
+                    .inner => |node| node.rel(),
+                    .leaf => |node| node.rel(),
+                }
+            }
+
+            pub fn peek(self: *NodeHeader, depth: u8) ?u8 {
+                return switch(self.toNode()) {
+                    .inner => |node| node.peek(depth),
+                    .leaf => |node| node.peek(depth),
+                };
+            }
+
+            pub fn propose(self: *NodeHeader, depth: u8, result_set: *ByteBitset) void {
+                return switch(self.toNode()) {
+                    .inner => |node| node.propose(depth, result_set),
+                    .leaf => |node| node.propose(depth, result_set),
+                };
+            }
+
+            pub fn get(self: *NodeHeader, depth: u8, key: u8) ?*NodeHeader {
+                return switch(self.toNode()) {
+                    .inner => |node| node.get(depth, key),
+                    .leaf => |node| node.get(depth, key),
+                };
+            }
+
+            pub fn put(self: *NodeHeader, depth: u8, key: *[key_length]u8, value: T) *NodeHeader {
+                return switch(self.toNode()) {
+                    .inner => |node| node.put(depth, key, value),
+                    .leaf => |node| node.put(depth, key, value),
                 };
             }
         };
@@ -169,23 +207,26 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                     key: u8 = 0,
                     padding: u8 = 0,
 
+                    /// Create new bucket entry for the given key and ptr.
+                    fn with(key: u8, ptr: *NodeHeader) Entry {
+                        return Entry{.key = key, .ptr = @intCast(u48, @ptrToInt(ptr))};
+                    }
+
                     /// Check if the entry has a value for the provided key.
                     fn has(self: *const Entry, key: u8) bool {
                         return self.key == key and self.ptr != 0;
                     }
                     /// Try to return the pointer stored in this entry iff
                     /// it matches the provided key.
-                    fn get(self: *const Entry, key: u8) ?*PACTHeader {
-                        return if (self.has(key))
-                            @intToPtr(*PACTHeader, self.ptr)
-                        else
-                            null;
+                    fn get(self: *const Entry, key: u8) ?*NodeHeader {
+                        return if (self.has(key)) @intToPtr(*NodeHeader, self.ptr)
+                        else null;
                     }
 
                     /// Store the key and associated pointer in this entry.
-                    fn set(self: *Entry, key: u8, ptr: *PACTHeader) void {
+                    fn set(self: *Entry, key: u8, ptr: *NodeHeader) void {
                         self.key = key;
-                        self.ptr = @intCast(u56, @ptrToInt(ptr));
+                        self.ptr = @intCast(u48, @ptrToInt(ptr));
                     }
 
                     /// Checks if the bucket slot is free to use, either
@@ -204,12 +245,12 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
 
                 slots: [SLOT_COUNT]Entry = undefined,
 
-                /// Attempts to retrieve the value stored  
-                pub fn get(self: *const Bucket, key: u8) ?*PACTHeader {
+                /// Retrieve the value stored, value must exist.
+                pub fn get(self: *const Bucket, key: u8) *NodeHeader {
                     for (self.slots) |slot| {
                         return slot.get(key) orelse continue;
                     }
-                    return null;
+                    unreachable;
                 }
 
                 /// Attempt to store a new key and pointer in this bucket,
@@ -269,7 +310,9 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
 
             const max_bucket_count = BRANCH_FACTOR / Bucket.SLOT_COUNT;
             var random: u8 = 4; // Chosen by fair dice roll.
-            header: PACTHeader,
+            header: NodeHeader,
+            ref_count: u16 = 1,
+            branch_depth: u8,
             padding: u8 = 0,
             bucket_count: u8 = 1,
             count: u40,
@@ -278,11 +321,16 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             child_set: ByteBitset = ByteBitset.initEmpty(),
             hash_set: ByteBitset = ByteBitset.initEmpty(),
 
+            fn byte_size(bucket_count: u8) u8 {
+                return @sizeOf(InnerNode) + (bucket_count * @sizeOf(Bucket));
+            }
+
             pub fn init(branch_depth: u8, key: *const [key_length]u8) *InnerNode {
-                const raw = allocator.allocWithOptions(u8, @sizeOf(InnerNode) +
-                    @sizeOf([1]Bucket), @alignOf(InnerNode), null) catch unreachable;
-                const new = @ptrCast(*InnerNode, raw);
-                new.* = InnerNode{ .header = PACTHeader{ .type_tag = .inner,.branch_depth = branch_depth },
+                const allocation = allocator.allocWithOptions(u8, byte_size(1), @alignOf(InnerNode), null) catch unreachable;
+                const new = @ptrCast(*InnerNode, allocation);
+                new.* = InnerNode{ .header = .inner,
+                                   .ref_count = 1,
+                                   .branch_depth = branch_depth,
                                    .count = 1,
                                    .segment_count = 1,
                                    .key_infix = undefined };
@@ -297,31 +345,53 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return new;
             }
 
-            fn deinit(self: *InnerNode) {
-                var child_iterator = self.child_set.iterator(.{.direction = .ascending});
-                while(child_iterator.next()) |child_byte_key| {
-                    self.cuckooGet(child_byte_key);
+            fn raw(self: *InnerNode) []u8 {
+                return @ptrCast([*]u8, self)[0..byte_size(self.bucket_count)];
+            }
+
+            pub fn ref(self: *InnerNode) !*InnerNode {
+                if(self.ref_count == std.math.maxInt(@TypeOf(self.ref_count))) {
+                    // Reference counter exhausted, we need to make a copy of this node.
+                    const byte_count =  byte_size(self.bucket_count);
+                    const allocation = allocator.allocWithOptions(u8, byte_count, @alignOf(InnerNode), null) catch unreachable;
+                    const new = @ptrCast(*InnerNode, allocation);
+                    mem.copy(u8, new.raw(), self.raw());
+                    new.ref_count = 1;
+                    
+                    var child_iterator = new.child_set.iterator(.{.direction = .forward});
+                    while(child_iterator.next()) |child_byte_key| {
+                        const child = new.cuckooGet(child_byte_key);
+                        const new_child = child.ref();
+                        if(child != new_child) {
+                            new.cuckooUpdate(Bucket.Entry.with(child_byte_key, new_child));
+                        }
+                    }
+                    return new;
+                } else {
+                    self.header.ref_count += 1;
+                    return self;
                 }
-                allocator.free(self);
             }
 
-            pub fn ref() {
-
+            pub fn rel(self: *InnerNode) void {
+                self.ref_count -= 1;
+                if(self.ref_count == 0) {
+                    defer allocator.free(self.raw());
+                    var child_iterator = self.child_set.iterator(.{.direction = .forward});
+                    while(child_iterator.next()) |child_byte_key| {
+                        self.cuckooGet(@intCast(u8, child_byte_key)).rel();
+                    }
+                }
             }
 
-            pub fn rel() {
-
-            }
-
-            fn putBranch(self: *InnerNode, key: u8, value: *PACTHeader) *InnerNode {
+            fn putBranch(self: *InnerNode, key: u8, value: *NodeHeader) *InnerNode {
                 const buckets = self.bucketSlice();
-                var entry: Bucket.Entry = undefined;
-                entry.set(key, value);
 
                 if (self.child_set.isSet(key)) {
                     const index = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
-                    buckets[index].update(entry);
+                    buckets[index].update(Bucket.Entry.with(key, value));
                 } else {
+                    var entry = Bucket.Entry.with(key, value);
                     var attempts: u8 = 0;
                     while (true) {
                         random = rand_lut[random ^ entry.key];
@@ -344,8 +414,8 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             fn grow(self: *InnerNode, copy: bool) *@This() {
                 _ = copy;
                 self.bucket_count = self.bucket_count << 1;
-                const raw = allocator.realloc(u8, self, @sizeOf(@This()) + @sizeOf(Bucket) * self.bucket_count) catch unreachable;
-                const new = @ptrCast(@This(), raw);
+                const allocation = allocator.realloc(u8, self, @sizeOf(@This()) + @sizeOf(Bucket) * self.bucket_count) catch unreachable;
+                const new = @ptrCast(@This(), allocation);
                 const buckets = new.bucketSlice();
                 mem.copy(Bucket, buckets[0 .. self.bucket_count / 2], buckets[self.bucket_count / 2 .. self.bucket_count]);
                 return new;
@@ -356,21 +426,26 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return ptr[0..self.bucket_count];
             }
 
-            fn cuckooGet(self: *InnerNode, depth: u8, key: u8) *PACTHeader {
+            fn cuckooGet(self: *InnerNode, key: u8) *NodeHeader {
                 const bucketIndex = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
                 return self.bucketSlice()[bucketIndex].get(key);
             }
 
-            pub fn put(self: *InnerNode, depth: u8, key: u8, ptr: *PACTHeader) void {
+            fn cuckooUpdate(self: *InnerNode, key: u8, ptr: *NodeHeader) void {
+                const bucketIndex = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
+                return self.bucketSlice()[bucketIndex].update(Bucket.Entry.from(key, ptr));
+            }
+
+            pub fn put(self: *InnerNode, depth: u8, key: u8, ptr: *NodeHeader) void {
                 _ = self;
                 _ = depth;
                 _ = key;
                 _ = ptr;
             }
 
-            pub fn get(self: *InnerNode, depth: u8, key: u8) ?*PACTHeader {
-                if (depth < self.header.branch_depth) {
-                    const index: u8 = (depth + @as(u8, self.key_infix.len)) - self.header.branch_depth;
+            pub fn get(self: *InnerNode, depth: u8, key: u8) ?*NodeHeader {
+                if (depth < self.branch_depth) {
+                    const index: u8 = (depth + @as(u8, self.key_infix.len)) - self.branch_depth;
                     const infix_key = self.key_infix[index];
                     if (infix_key == key) {
                         return &self.header;
@@ -385,33 +460,78 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
         };
 
         const LeafNode = struct {
-            header: PACTHeader,
-            key: [key_length]u8,
+            header: NodeHeader,
+            suffix_len: u8,
+            ref_count: u16 = 1,
             value: T,
 
-            pub fn init(key: *[key_length]u8, value: T) *@This() {
-                const new = allocator.create(@This()) catch unreachable;
-                new.* = @This(){ .header = PACTHeader{ .branch_depth = key_length, .refcount = 1 }, .key = key.*, .value = value };
+            fn byte_size(suffix_len: u8) u8 {
+                return @sizeOf(LeafNode) + suffix_len;
+            }
+
+            pub fn init(branch_depth: u8, key: *const [key_length]u8) *InnerNode {
+                const new_suffix_len = key_length - branch_depth;
+                const allocation = allocator.allocWithOptions(u8, byte_size(new_suffix_len), @alignOf(LeafNode), null) catch unreachable;
+                const new = @ptrCast(*LeafNode, allocation);
+                new.* = LeafNode{
+                                .header = .leaf,
+                                .ref_count = 1,
+                                .suffix_len = new_suffix_len,
+                                .value = undefined };
+                const new_suffix = new.suffixSlice();
+                const key_start = key_length - new_suffix.len;
+                mem.copy(u8, new.suffixSlice(), key[key_start..key_length]);
                 return new;
             }
 
-            pub fn peek(self: *@This(), depth: u8) ?u8 {
+            fn raw(self: *LeafNode) []u8 {
+                return @ptrCast([*]u8, self)[0..byte_size(self.suffix_len)];
+            }
+
+            pub fn ref(self: *LeafNode) !*LeafNode {
+                if(self.ref_count == std.math.maxInt(@TypeOf(self.ref_count))) {
+                    // Reference counter exhausted, we need to make a copy of this node.
+                    const byte_count = byte_size(self.suffix_len);
+                    const allocation = allocator.allocWithOptions(u8, byte_count, @alignOf(LeafNode), null) catch unreachable;
+                    const new = @ptrCast(*LeafNode, allocation);
+                    mem.copy(u8, new.raw(), self.raw());
+                    new.ref_count = 1;
+                    return new;
+                } else {
+                    self.ref_count += 1;
+                    return self;
+                }
+            }
+
+            pub fn rel(self: *LeafNode) void {
+                self.ref_count -= 1;
+                if(self.ref_count == 0) {
+                    defer allocator.free(self.raw());
+                }
+            }
+
+            fn suffixSlice(self: *LeafNode) []u8 {
+                const ptr = @intToPtr([*]u8, @ptrToInt(self) + @sizeOf(@This()));
+                return ptr[0..self.suffix_len];
+            }
+
+            pub fn peek(self: *LeafNode, depth: u8) ?u8 {
                 if (depth < key_length) return self.key[depth];
                 return null;
             }
 
-            pub fn propose(self: *@This(), depth: u8, result_set: *ByteBitset) void {
+            pub fn propose(self: *LeafNode, depth: u8, result_set: *ByteBitset) void {
                 var set = ByteBitset.initEmpty();
                 set.set(self.key[depth]);
                 result_set.setIntersection(set);
             }
 
-            pub fn get(self: *@This(), depth: u8, key: u8) ?*PACTHeader {
+            pub fn get(self: *LeafNode, depth: u8, key: u8) ?*NodeHeader {
                 if (depth < key_length and self.key[depth] == key) return &self.header;
                 return null;
             }
 
-            pub fn put(self: *@This(), depth: u8, key: *[key_length]u8, value: T) *PACTHeader {
+            pub fn put(self: *LeafNode, depth: u8, key: *[key_length]u8, value: T) *NodeHeader {
                 while (depth < key_length and self.key[depth] != key[depth]) depth += 1;
 
                 if (depth == key_length) {
