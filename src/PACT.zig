@@ -120,6 +120,8 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
 
 fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Allocator) type {
     return struct {
+        const allocError = std.mem.Allocator.Error;
+
         const Node = union(NodeHeader) { inner: *InnerNode, leaf: *LeafNode };
 
         const NodeHeader = enum(u8) {
@@ -132,8 +134,8 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 };
             }
                         
-            pub fn ref(self: *NodeHeader) !void {
-                try switch(self.toNode()) {
+            pub fn ref(self: *NodeHeader) allocError!*NodeHeader {
+                return switch(self.toNode()) {
                     .inner => |node| node.ref(),
                     .leaf => |node| node.ref(),
                 };
@@ -144,6 +146,13 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                     .inner => |node| node.rel(),
                     .leaf => |node| node.rel(),
                 }
+            }
+
+            pub fn count(self: *NodeHeader) u40 {
+                return switch(self.toNode()) {
+                    .inner => |node| node.count(),
+                    .leaf => |node| node.count(),
+                };
             }
 
             pub fn peek(self: *NodeHeader, depth: u8) ?u8 {
@@ -315,7 +324,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             branch_depth: u8,
             padding: u8 = 0,
             bucket_count: u8 = 1,
-            count: u40,
+            leaf_count: u40,
             segment_count: u40,
             key_infix: [32]u8,
             child_set: ByteBitset = ByteBitset.initEmpty(),
@@ -325,13 +334,13 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return @sizeOf(InnerNode) + (bucket_count * @sizeOf(Bucket));
             }
 
-            pub fn init(branch_depth: u8, key: *const [key_length]u8) *NodeHeader {
-                const allocation = allocator.allocWithOptions(u8, byte_size(1), @alignOf(InnerNode), null) catch unreachable;
+            pub fn init(branch_depth: u8, key: *const [key_length]u8) !*NodeHeader {
+                const allocation = try allocator.allocWithOptions(u8, byte_size(1), @alignOf(InnerNode), null);
                 const new = @ptrCast(*InnerNode, allocation);
                 new.* = InnerNode{ .header = .inner,
                                    .ref_count = 1,
                                    .branch_depth = branch_depth,
-                                   .count = 1,
+                                   .leaf_count = 1,
                                    .segment_count = 1,
                                    .key_infix = undefined };
                 const segmentLength = @minimum(branch_depth, 32);
@@ -349,27 +358,28 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return @ptrCast([*]u8, self)[0..byte_size(self.bucket_count)];
             }
 
-            pub fn ref(self: *InnerNode) !*InnerNode {
+            pub fn ref(self: *InnerNode) allocError!*NodeHeader {
                 if(self.ref_count == std.math.maxInt(@TypeOf(self.ref_count))) {
                     // Reference counter exhausted, we need to make a copy of this node.
                     const byte_count =  byte_size(self.bucket_count);
-                    const allocation = allocator.allocWithOptions(u8, byte_count, @alignOf(InnerNode), null) catch unreachable;
+                    const allocation = try allocator.allocWithOptions(u8, byte_count, @alignOf(InnerNode), null);
                     const new = @ptrCast(*InnerNode, allocation);
                     mem.copy(u8, new.raw(), self.raw());
                     new.ref_count = 1;
                     
                     var child_iterator = new.child_set.iterator(.{.direction = .forward});
                     while(child_iterator.next()) |child_byte_key| {
-                        const child = new.cuckooGet(child_byte_key);
-                        const new_child = child.ref();
+                        const cast_child_byte_key = @intCast(u8, child_byte_key);
+                        const child = new.cuckooGet(cast_child_byte_key);
+                        const new_child = try child.ref();
                         if(child != new_child) {
-                            new.cuckooUpdate(Bucket.Entry.with(child_byte_key, new_child));
+                            new.cuckooUpdate(cast_child_byte_key, new_child);
                         }
                     }
-                    return new;
+                    return &new.header;
                 } else {
-                    self.header.ref_count += 1;
-                    return self;
+                    self.ref_count += 1;
+                    return &self.header;
                 }
             }
 
@@ -382,6 +392,10 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                         self.cuckooGet(@intCast(u8, child_byte_key)).rel();
                     }
                 }
+            }
+
+            pub fn count(self: *InnerNode) u40 {
+                return self.leaf_count;
             }
 
             fn putBranch(self: *InnerNode, key: u8, value: *NodeHeader) *InnerNode {
@@ -411,10 +425,10 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return self;
             }
 
-            fn grow(self: *InnerNode, copy: bool) *@This() {
+            fn grow(self: *InnerNode, copy: bool) !*@This() {
                 _ = copy;
                 self.bucket_count = self.bucket_count << 1;
-                const allocation = allocator.realloc(u8, self, @sizeOf(@This()) + @sizeOf(Bucket) * self.bucket_count) catch unreachable;
+                const allocation = try allocator.realloc(u8, self, @sizeOf(@This()) + @sizeOf(Bucket) * self.bucket_count);
                 const new = @ptrCast(@This(), allocation);
                 const buckets = new.bucketSlice();
                 mem.copy(Bucket, buckets[0 .. self.bucket_count / 2], buckets[self.bucket_count / 2 .. self.bucket_count]);
@@ -433,7 +447,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
 
             fn cuckooUpdate(self: *InnerNode, key: u8, ptr: *NodeHeader) void {
                 const bucketIndex = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
-                return self.bucketSlice()[bucketIndex].update(Bucket.Entry.from(key, ptr));
+                return self.bucketSlice()[bucketIndex].update(Bucket.Entry.with(key, ptr));
             }
 
             pub fn put(self: *InnerNode, depth: u8, key: u8, ptr: *NodeHeader) void {
@@ -469,9 +483,9 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return @sizeOf(LeafNode) + suffix_len;
             }
 
-            pub fn init(branch_depth: u8, key: *const [key_length]u8) *NodeHeader {
+            pub fn init(branch_depth: u8, key: *const [key_length]u8) !*NodeHeader {
                 const new_suffix_len = key_length - branch_depth;
-                const allocation = allocator.allocWithOptions(u8, byte_size(new_suffix_len), @alignOf(LeafNode), null) catch unreachable;
+                const allocation = try allocator.allocWithOptions(u8, byte_size(new_suffix_len), @alignOf(LeafNode), null);
                 const new = @ptrCast(*LeafNode, allocation);
                 new.* = LeafNode{
                                 .header = .leaf,
@@ -488,18 +502,18 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return @ptrCast([*]u8, self)[0..byte_size(self.suffix_len)];
             }
 
-            pub fn ref(self: *LeafNode) !*LeafNode {
+            pub fn ref(self: *LeafNode) allocError!*NodeHeader {
                 if(self.ref_count == std.math.maxInt(@TypeOf(self.ref_count))) {
                     // Reference counter exhausted, we need to make a copy of this node.
                     const byte_count = byte_size(self.suffix_len);
-                    const allocation = allocator.allocWithOptions(u8, byte_count, @alignOf(LeafNode), null) catch unreachable;
+                    const allocation = try allocator.allocWithOptions(u8, byte_count, @alignOf(LeafNode), null);
                     const new = @ptrCast(*LeafNode, allocation);
                     mem.copy(u8, new.raw(), self.raw());
                     new.ref_count = 1;
-                    return new;
+                    return &new.header;
                 } else {
                     self.ref_count += 1;
-                    return self;
+                    return &self.header;
                 }
             }
 
@@ -513,6 +527,11 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             fn suffixSlice(self: *LeafNode) []u8 {
                 const ptr = @intToPtr([*]u8, @ptrToInt(self) + @sizeOf(@This()));
                 return ptr[0..self.suffix_len];
+            }
+
+            pub fn count(self: *LeafNode) u40 {
+                _ = self;
+                return 1;
             }
 
             pub fn peek(self: *LeafNode, depth: u8) ?u8 {
@@ -565,14 +584,198 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 // );
             }
         };
+
+        const Tree = struct {
+            ref_count: usize = 1,
+            child: ?*NodeHeader = null,
+
+            pub fn init(child: ?*NodeHeader) !*Tree {
+                var own_child = child;
+                if(own_child) |*c| {
+                    c.* = try c.*.ref();
+                }
+                const new = try allocator.create(Tree);
+                new.* = Tree{.child = own_child};
+                return new;
+            }
+
+            pub fn ref(self: *Tree) *Tree {
+                self.ref_count += 1;
+                return self;
+            }
+
+            pub fn rel(self: *Tree) void {
+                self.ref_count -= 1;
+                if(self.ref_count == 0) {
+                    defer allocator.destroy(self);
+                    if(self.child) |child| {
+                        defer child.rel();
+                    }
+                }
+            }
+            
+            pub fn count(self: *Tree) u40 {
+                return if (self.child) |child| child.count()
+                else 0;
+            }
+
+    // put(key, value = null) {
+    //   if (this.child !== null) {
+    //     const nchild = this.child.put(0, key, value, {});
+    //     if (this.child === nchild) return this;
+    //     return new PACTTree(nchild);
+    //   }
+    //   return new PACTTree(new PACTLeaf(0, key, value, PACTHash(key)));
+    // }
+    // get(key) {
+    //   let node = this.child;
+    //   if (node === null) return undefined;
+    //   for (let depth = 0; depth < KEY_LENGTH; depth++) {
+    //     const sought = key[depth];
+    //     node = node.get(depth, sought);
+    //     if (node === null) return undefined;
+    //   }
+    //   return node.value;
+    // }
+
+    // cursor() {
+    //   return new PACTCursor(this);
+    // }
+
+    // isEmpty() {
+    //   return this.child === null;
+    // }
+
+    // isEqual(other) {
+    //   return (
+    //     this.child === other.child ||
+    //     (this.keyLength === other.keyLength &&
+    //       !!this.child &&
+    //       !!other.child &&
+    //       hash_equal(this.child.hash, other.child.hash))
+    //   );
+    // }
+
+    // isSubsetOf(other) {
+    //   return (
+    //     this.keyLength === other.keyLength &&
+    //     (!this.child || (!!other.child && _isSubsetOf(this.child, other.child)))
+    //   );
+    // }
+
+    // isIntersecting(other) {
+    //   return (
+    //     this.keyLength === other.keyLength &&
+    //     !!this.child &&
+    //     !!other.child &&
+    //     (this.child === other.child ||
+    //       hash_equal(this.child.hash, other.child.hash) ||
+    //       _isIntersecting(this.child, other.child))
+    //   );
+    // }
+
+    // union(other) {
+    //   const thisNode = this.child;
+    //   const otherNode = other.child;
+    //   if (thisNode === null) {
+    //     return new PACTTree(otherNode);
+    //   }
+    //   if (otherNode === null) {
+    //     return new PACTTree(thisNode);
+    //   }
+    //   return new PACTTree(_union(thisNode, otherNode));
+    // }
+
+    // subtract(other) {
+    //   const thisNode = this.child;
+    //   const otherNode = other.child;
+    //   if (otherNode === null) {
+    //     return new PACTTree(thisNode);
+    //   }
+    //   if (
+    //     this.child === null ||
+    //     hash_equal(this.child.hash, other.child.hash)
+    //   ) {
+    //     return new PACTTree();
+    //   } else {
+    //     return new PACTTree(_subtract(thisNode, otherNode));
+    //   }
+    // }
+
+    // intersect(other) {
+    //   const thisNode = this.child;
+    //   const otherNode = other.child;
+
+    //   if (thisNode === null || otherNode === null) {
+    //     return new PACTTree(null);
+    //   }
+    //   if (thisNode === otherNode || hash_equal(thisNode.hash, otherNode.hash)) {
+    //     return new PACTTree(otherNode);
+    //   }
+    //   return new PACTTree(_intersect(thisNode, otherNode));
+    // }
+
+    // difference(other) {
+    //   const thisNode = this.child;
+    //   const otherNode = other.child;
+
+    //   if (thisNode === null) {
+    //     return new PACTTree(otherNode);
+    //   }
+    //   if (otherNode === null) {
+    //     return new PACTTree(thisNode);
+    //   }
+    //   if (thisNode === otherNode || hash_equal(thisNode.hash, otherNode.hash)) {
+    //     return new PACTTree(null);
+    //   }
+    //   return new PACTTree(_difference(thisNode, otherNode));
+    // }
+
+    // *entries() {
+    //   if (this.child === null) return;
+    //   for (const [k, v] of _walk(this.child)) {
+    //     yield [k.slice(), v];
+    //   }
+    // }
+
+    // *keys() {
+    //   if (this.child === null) return;
+    //   for (const [k, v] of _walk(this.child)) {
+    //     yield k.slice();
+    //   }
+    // }
+
+    // *values() {
+    //   if (this.child === null) return;
+    //   for (const [k, v] of _walk(this.child)) {
+    //     yield v;
+    //   }
+    // }
+  };
+
     };
+}
+
+test "create tree" {
+    const trible_length = 64;
+    const PACT = makePACT(trible_length, usize, std.testing.allocator);
+    var tree = try PACT.Tree.init(null);
+    defer tree.rel();
+}
+
+test "empty tree has zero count" {
+    const trible_length = 64;
+    const PACT = makePACT(trible_length, usize, std.testing.allocator);
+    var tree = try PACT.Tree.init(null);
+    try expect(tree.count() == 0);
+    defer tree.rel();
 }
 
 test "put nothing -> get nothing" {
     const trible_length = 64;
     const PACT = makePACT(trible_length, usize, std.testing.allocator);
     var key = [_]u8{0} ** trible_length;
-    var inner = PACT.InnerNode.init(32, &key);
+    var inner = try PACT.InnerNode.init(32, &key);
     defer inner.rel();
     try expect(inner.get(0, 0) == inner);
 }
