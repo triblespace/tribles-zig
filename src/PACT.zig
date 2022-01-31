@@ -325,7 +325,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return @sizeOf(InnerNode) + (bucket_count * @sizeOf(Bucket));
             }
 
-            pub fn init(branch_depth: u8, key: *const [key_length]u8) *InnerNode {
+            pub fn init(branch_depth: u8, key: *const [key_length]u8) *NodeHeader {
                 const allocation = allocator.allocWithOptions(u8, byte_size(1), @alignOf(InnerNode), null) catch unreachable;
                 const new = @ptrCast(*InnerNode, allocation);
                 new.* = InnerNode{ .header = .inner,
@@ -342,7 +342,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 for (new.bucketSlice()) |*bucket| {
                     bucket.* = Bucket{};
                 }
-                return new;
+                return &new.header;
             }
 
             fn raw(self: *InnerNode) []u8 {
@@ -469,7 +469,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return @sizeOf(LeafNode) + suffix_len;
             }
 
-            pub fn init(branch_depth: u8, key: *const [key_length]u8) *InnerNode {
+            pub fn init(branch_depth: u8, key: *const [key_length]u8) *NodeHeader {
                 const new_suffix_len = key_length - branch_depth;
                 const allocation = allocator.allocWithOptions(u8, byte_size(new_suffix_len), @alignOf(LeafNode), null) catch unreachable;
                 const new = @ptrCast(*LeafNode, allocation);
@@ -481,7 +481,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 const new_suffix = new.suffixSlice();
                 const key_start = key_length - new_suffix.len;
                 mem.copy(u8, new.suffixSlice(), key[key_start..key_length]);
-                return new;
+                return &new.header;
             }
 
             fn raw(self: *LeafNode) []u8 {
@@ -527,7 +527,9 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             }
 
             pub fn get(self: *LeafNode, depth: u8, key: u8) ?*NodeHeader {
-                if (depth < key_length and self.key[depth] == key) return &self.header;
+                const index = depth - (key_length - self.suffix_len);
+                // The formula used here is different from the one of the inner node as key_length > suffix_length.
+                if (depth < key_length and self.suffixSlice()[index] == key) return &self.header;
                 return null;
             }
 
@@ -572,6 +574,5 @@ test "put nothing -> get nothing" {
     var key = [_]u8{0} ** trible_length;
     var inner = PACT.InnerNode.init(32, &key);
     defer inner.rel();
-    var node = PACT.Node{ .inner = inner };
-    try expect(node.inner.get(0, 0) == null);
+    try expect(inner.get(0, 0) == inner);
 }
