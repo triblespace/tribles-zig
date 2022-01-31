@@ -3,6 +3,34 @@ const assert = std.debug.assert;
 const expect = std.testing.expect;
 const mem = std.mem;
 
+var instance_secret : [16]u8 = undefined;
+
+pub fn init() void {
+    std.crypto.random.bytes(&instance_secret);
+}
+
+const Hash = [16]u8;
+
+fn keyHash(key: []const u8) Hash {
+  const siphash = comptime std.hash.SipHash128(2, 4);
+  var hash: [16]u8 = undefined; 
+  siphash.create(&hash, key, &instance_secret);
+  return hash;
+}
+
+fn xorHash(left: Hash, right: Hash) Hash { //TODO make this vector SIMD stuff?
+    var hash: Hash = undefined; 
+    for(hash) |*byte, i| {
+        byte.* = left[i] ^ right[i];
+    }
+    return hash;
+}
+
+fn eqlHash(left: Hash, right: Hash) bool {
+    return std.mem.eql(u8, &left, &right);
+}
+
+
 const ByteBitset = std.StaticBitSet(256);
 
 /// The Tries branching factor, fixed to the number of elements
@@ -176,10 +204,10 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 };
             }
 
-            pub fn put(self: *NodeHeader, depth: u8, key: *[key_length]u8, value: T) *NodeHeader {
+            pub fn put(self: *NodeHeader, depth: u8, key: *const [key_length]u8, value: T, single_owner: bool) allocError!*NodeHeader {
                 return switch(self.toNode()) {
-                    .inner => |node| node.put(depth, key, value),
-                    .leaf => |node| node.put(depth, key, value),
+                    .inner => |node| node.put(depth, key, value, single_owner),
+                    .leaf => |node| node.put(depth, key, value, single_owner),
                 };
             }
         };
@@ -450,11 +478,12 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return self.bucketSlice()[bucketIndex].update(Bucket.Entry.with(key, ptr));
             }
 
-            pub fn put(self: *InnerNode, depth: u8, key: u8, ptr: *NodeHeader) void {
-                _ = self;
+            pub fn put(self: *InnerNode, depth: u8, key: *const [key_length]u8, value: T, single_owner: bool) allocError!*NodeHeader {
                 _ = depth;
                 _ = key;
-                _ = ptr;
+                _ = value;
+                _ = single_owner;
+                return &self.header;
             }
 
             pub fn get(self: *InnerNode, depth: u8, key: u8) ?*NodeHeader {
@@ -477,13 +506,14 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             header: NodeHeader,
             suffix_len: u8,
             ref_count: u16 = 1,
+            hash: Hash,
             value: T,
 
             fn byte_size(suffix_len: u8) u8 {
                 return @sizeOf(LeafNode) + suffix_len;
             }
 
-            pub fn init(branch_depth: u8, key: *const [key_length]u8) !*NodeHeader {
+            pub fn init(branch_depth: u8, key: *const [key_length]u8, value: T, hash: Hash) !*NodeHeader {
                 const new_suffix_len = key_length - branch_depth;
                 const allocation = try allocator.allocWithOptions(u8, byte_size(new_suffix_len), @alignOf(LeafNode), null);
                 const new = @ptrCast(*LeafNode, allocation);
@@ -491,7 +521,8 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                                 .header = .leaf,
                                 .ref_count = 1,
                                 .suffix_len = new_suffix_len,
-                                .value = undefined };
+                                .hash = hash,
+                                .value = value };
                 const new_suffix = new.suffixSlice();
                 const key_start = key_length - new_suffix.len;
                 mem.copy(u8, new.suffixSlice(), key[key_start..key_length]);
@@ -552,14 +583,20 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return null;
             }
 
-            pub fn put(self: *LeafNode, depth: u8, key: *[key_length]u8, value: T) *NodeHeader {
-                while (depth < key_length and self.key[depth] != key[depth]) depth += 1;
-
-                if (depth == key_length) {
-                    return &self.header;
-                }
-
+            pub fn put(self: *LeafNode, depth: u8, key: *const [key_length]u8, value: T, single_owner: bool) allocError!*NodeHeader {
+                _ = depth;
+                _ = key;
                 _ = value;
+                _ = single_owner;
+                return &self.header;
+
+                // while (depth < key_length and self.key[depth] != key[depth]) depth += 1;
+
+                // if (depth == key_length) {
+                //     return &self.header;
+                // }
+
+                // _ = value;
 
                 // const sibling = LeafNode.init(key, value);
 
@@ -586,47 +623,42 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
         };
 
         const Tree = struct {
-            ref_count: usize = 1,
             child: ?*NodeHeader = null,
 
-            pub fn init(child: ?*NodeHeader) !*Tree {
+            pub fn init(child: ?*NodeHeader) !Tree {
                 var own_child = child;
                 if(own_child) |*c| {
                     c.* = try c.*.ref();
                 }
-                const new = try allocator.create(Tree);
-                new.* = Tree{.child = own_child};
-                return new;
+                return Tree{.child = own_child};
             }
 
-            pub fn ref(self: *Tree) *Tree {
-                self.ref_count += 1;
-                return self;
-            }
-
-            pub fn rel(self: *Tree) void {
-                self.ref_count -= 1;
-                if(self.ref_count == 0) {
-                    defer allocator.destroy(self);
-                    if(self.child) |child| {
-                        defer child.rel();
-                    }
+            pub fn deinit(self: *Tree) void {
+                if(self.child) |child| {
+                    child.rel();
                 }
             }
             
+            pub fn fork(self: *Tree) !Tree {
+                var own_child = self.child;
+                if(own_child) |*c| {
+                    c.* = try c.*.ref();
+                }
+                return Tree{.child = own_child};
+            }
+
             pub fn count(self: *Tree) u40 {
                 return if (self.child) |child| child.count()
                 else 0;
             }
 
-    // put(key, value = null) {
-    //   if (this.child !== null) {
-    //     const nchild = this.child.put(0, key, value, {});
-    //     if (this.child === nchild) return this;
-    //     return new PACTTree(nchild);
-    //   }
-    //   return new PACTTree(new PACTLeaf(0, key, value, PACTHash(key)));
-    // }
+            pub fn put(self: *Tree, key: *const [key_length]u8, value: T) !void {
+                if (self.child) |*child| {
+                    child.* = try child.*.put(0, key, value, true);
+                } else {
+                    self.child = try LeafNode.init(0, key, value, keyHash(key[0..key_length]));
+                }
+            }
     // get(key) {
     //   let node = this.child;
     //   if (node === null) return undefined;
@@ -757,18 +789,47 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
 }
 
 test "create tree" {
-    const trible_length = 64;
-    const PACT = makePACT(trible_length, usize, std.testing.allocator);
+    const key_length = 64;
+    const PACT = makePACT(key_length, usize, std.testing.allocator);
     var tree = try PACT.Tree.init(null);
-    defer tree.rel();
+    defer tree.deinit();
 }
 
-test "empty tree has zero count" {
-    const trible_length = 64;
-    const PACT = makePACT(trible_length, usize, std.testing.allocator);
+test "empty tree has count 0" {
+    const key_length = 64;
+    const PACT = makePACT(key_length, usize, std.testing.allocator);
     var tree = try PACT.Tree.init(null);
+    defer tree.deinit();
+
     try expect(tree.count() == 0);
-    defer tree.rel();
+}
+
+test "single item tree has count 1" {
+    const key_length = 64;
+    const PACT = makePACT(key_length, usize, std.testing.allocator);
+    var tree = try PACT.Tree.init(null);
+    defer tree.deinit();
+
+    const key:[key_length]u8 = [_]u8{0} ** key_length;
+    try tree.put(&key, 42);
+
+    try expect(tree.count() == 1);
+}
+
+test "immutable tree" {
+    const key_length = 64;
+    const PACT = makePACT(key_length, usize, std.testing.allocator);
+    var tree = try PACT.Tree.init(null);
+    defer tree.deinit();
+
+    var new_tree = try tree.fork();
+    defer new_tree.deinit();
+
+    const key:[key_length]u8 = [_]u8{0} ** key_length;
+    try new_tree.put(&key, 42);
+
+    try expect(tree.count() == 0);
+    try expect(new_tree.count() == 1);
 }
 
 test "put nothing -> get nothing" {
