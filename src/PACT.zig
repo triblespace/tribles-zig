@@ -1,7 +1,11 @@
 const std = @import("std");
 const assert = std.debug.assert;
-const expect = std.testing.expect;
+const expectEqual = std.testing.expectEqual;
+
 const mem = std.mem;
+
+// TODO: change hash set index to boolean or at least make set -> 1, unset -> 0
+
 
 var instance_secret : [16]u8 = undefined;
 
@@ -219,7 +223,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 break :blk generate_pearson_LUT(rand_state.random());
             };
             /// Hashes the value provided with the selected permuation and provided compression.
-            fn hash(
+            fn hashByteKey(
                 // / Selects the permutation used.
                 p: u8,
                 // / Bucket count to parameterize the compression used to pigeonhole the items. Must be a power of 2.
@@ -228,8 +232,11 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 v: u8,
             ) u8 {
                 @setEvalBranchQuota(1000000);
-                comptime var rand = std.rand.Xoroshiro128.init(0);
-                const luts = generate_hash_LUTs(comptime rand.random());
+                const luts = comptime blk: {
+                    @setEvalBranchQuota(1000000);
+                    var rand_state = std.rand.Xoroshiro128.init(0);
+                    break :blk generate_hash_LUTs(rand_state.random());
+                };
                 const mask = c - 1;
                 return mask & luts[v][p];
             }
@@ -276,7 +283,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                         i: u8,
                     ) bool {
                         return self.ptr == 0 or
-                            (i != hash(if (h.isSet(self.key)) 0 else 1, c, self.key));
+                            (i != hashByteKey(if (h.isSet(self.key)) 0 else 1, c, self.key));
                     }
                 };
 
@@ -295,7 +302,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 /// If there is no free slot the attempt will fail.
                 /// Returns true iff it succeeds.
                 pub fn put(
-                    self: *Bucket(),
+                    self: *Bucket,
                     // / Determines the hash function used for each key and is used to detect outdated (free) slots.
                     hash_select: *ByteBitset,
                     // / The current bucket count. Is used to detect outdated (free) slots.
@@ -309,7 +316,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                         if (slot.has(entry.key) or
                             slot.isFree(hash_select, bucket_count, bucket_index))
                         {
-                            slot.* = Entry;
+                            slot.* = entry;
                             return true;
                         }
                     }
@@ -352,17 +359,18 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             branch_depth: u8,
             padding: u8 = 0,
             bucket_count: u8 = 1,
-            leaf_count: u40,
+            leaf_count: u40 = 1,
             segment_count: u40,
+            hash: Hash = [_]u8{0} ** 16,
             key_infix: [32]u8,
             child_set: ByteBitset = ByteBitset.initEmpty(),
             hash_set: ByteBitset = ByteBitset.initEmpty(),
 
-            fn byte_size(bucket_count: u8) u8 {
-                return @sizeOf(InnerNode) + (bucket_count * @sizeOf(Bucket));
+            fn byte_size(bucket_count: u8) usize {
+                return @sizeOf(InnerNode) + (@intCast(usize, bucket_count) * @sizeOf(Bucket));
             }
 
-            pub fn init(branch_depth: u8, key: *const [key_length]u8) !*NodeHeader {
+            pub fn init(branch_depth: u8, key: *const [key_length]u8) !*InnerNode {
                 const allocation = try allocator.allocWithOptions(u8, byte_size(1), @alignOf(InnerNode), null);
                 const new = @ptrCast(*InnerNode, allocation);
                 new.* = InnerNode{ .header = .inner,
@@ -379,11 +387,15 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 for (new.bucketSlice()) |*bucket| {
                     bucket.* = Bucket{};
                 }
-                return &new.header;
+                return new;
             }
 
             fn raw(self: *InnerNode) []u8 {
-                return @ptrCast([*]u8, self)[0..byte_size(self.bucket_count)];
+                return @ptrCast([*] align(@alignOf(InnerNode)) u8, self)[0..byte_size(self.bucket_count)];
+            }
+
+            fn head(self: *InnerNode) *NodeHeader {
+                return &self.header;
             }
 
             pub fn ref(self: *InnerNode) allocError!*NodeHeader {
@@ -404,10 +416,10 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                             new.cuckooUpdate(cast_child_byte_key, new_child);
                         }
                     }
-                    return &new.header;
+                    return new.head();
                 } else {
                     self.ref_count += 1;
-                    return &self.header;
+                    return self.head();
                 }
             }
 
@@ -426,55 +438,61 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 return self.leaf_count;
             }
 
-            fn putBranch(self: *InnerNode, key: u8, value: *NodeHeader) *InnerNode {
-                const buckets = self.bucketSlice();
-
-                if (self.child_set.isSet(key)) {
-                    const index = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
-                    buckets[index].update(Bucket.Entry.with(key, value));
-                } else {
-                    var entry = Bucket.Entry.with(key, value);
-                    var attempts: u8 = 0;
-                    while (true) {
-                        random = rand_lut[random ^ entry.key];
-                        const hash_index = if (self.bucket_count == max_bucket_count) 0 else random & 1;
-                        const bucket_index = hash(hash_index, self.bucket_count, key);
-                        if (buckets[bucket_index].put(self.hash_set, self.bucket_count, bucket_index, entry)) break;
-                        entry = buckets[bucket_index].displace(random, entry);
-                        if (self.bucket_count != max_bucket_count) {
-                            attempts += 1;
-                            if (attempts == MAX_ATTEMPTS) {
-                                attempts = 0;
-                                self = self.grow();
-                            }
-                        }
-                    }
-                }
-                return self;
-            }
-
-            fn grow(self: *InnerNode, copy: bool) !*@This() {
-                _ = copy;
-                self.bucket_count = self.bucket_count << 1;
-                const allocation = try allocator.realloc(u8, self, @sizeOf(@This()) + @sizeOf(Bucket) * self.bucket_count);
-                const new = @ptrCast(@This(), allocation);
+            fn grow(self: *InnerNode) !*InnerNode {
+                const new_bucket_count = self.bucket_count << 1;
+                const allocation = try allocator.reallocAdvanced(self.raw(), @alignOf(InnerNode), byte_size(self.bucket_count), .exact);
+                const new = @ptrCast(*InnerNode, allocation);
+                new.bucket_count = new_bucket_count;
                 const buckets = new.bucketSlice();
-                mem.copy(Bucket, buckets[0 .. self.bucket_count / 2], buckets[self.bucket_count / 2 .. self.bucket_count]);
+                mem.copy(Bucket, buckets[0 .. buckets.len / 2], buckets[buckets.len / 2 .. buckets.len]);
                 return new;
             }
 
             fn bucketSlice(self: *InnerNode) []Bucket {
-                const ptr = @intToPtr([*]Bucket, @ptrToInt(self) + @sizeOf(@This()));
+                const ptr = @intToPtr([*]Bucket, @ptrToInt(self) + @sizeOf(InnerNode));
                 return ptr[0..self.bucket_count];
             }
 
+            fn cuckooPut(self: *InnerNode, byte_key: u8, value: *NodeHeader) !*InnerNode {
+                if (self.child_set.isSet(byte_key)) {
+                    const buckets = self.bucketSlice();
+                    const index = hashByteKey(if (self.hash_set.isSet(byte_key)) 0 else 1, self.bucket_count, byte_key);
+                    buckets[index].update(Bucket.Entry.with(byte_key, value));
+                    return self;
+                } else {
+                    var node = self;
+                    var entry = Bucket.Entry.with(byte_key, value);
+                    var buckets = node.bucketSlice();
+                    var attempts: u8 = 0;
+                    while (true) {
+                        random = rand_lut[random ^ entry.key];
+                        const hash_index = if (node.bucket_count == max_bucket_count) 0 else random & 1;
+                        const bucket_index = hashByteKey(hash_index, node.bucket_count, byte_key);
+                        if (buckets[bucket_index].put(&node.hash_set, node.bucket_count, bucket_index, entry)) {
+                            node.child_set.set(byte_key);
+                            node.hash_set.setValue(byte_key, hash_index == 0);
+                            return node;
+                        }
+                        entry = buckets[bucket_index].displace(random, entry);
+                        if (node.bucket_count != max_bucket_count) {
+                            attempts += 1;
+                            if (attempts == MAX_ATTEMPTS) {
+                                attempts = 0;
+                                node = try node.grow();
+                                buckets = node.bucketSlice();
+                            }
+                        }
+                    }
+                }
+            }
+
             fn cuckooGet(self: *InnerNode, key: u8) *NodeHeader {
-                const bucketIndex = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
+                const bucketIndex = hashByteKey(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
                 return self.bucketSlice()[bucketIndex].get(key);
             }
 
             fn cuckooUpdate(self: *InnerNode, key: u8, ptr: *NodeHeader) void {
-                const bucketIndex = hash(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
+                const bucketIndex = hashByteKey(if (self.hash_set.isSet(key)) 0 else 1, self.bucket_count, key);
                 return self.bucketSlice()[bucketIndex].update(Bucket.Entry.with(key, ptr));
             }
 
@@ -483,7 +501,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 _ = key;
                 _ = value;
                 _ = single_owner;
-                return &self.header;
+                return self.head();
             }
 
             pub fn get(self: *InnerNode, depth: u8, key: u8) ?*NodeHeader {
@@ -491,7 +509,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                     const index: u8 = (depth + @as(u8, self.key_infix.len)) - self.branch_depth;
                     const infix_key = self.key_infix[index];
                     if (infix_key == key) {
-                        return &self.header;
+                        return self.head();
                     }
                 } else {
                     if (self.child_set.isSet(key)) {
@@ -509,11 +527,11 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             hash: Hash,
             value: T,
 
-            fn byte_size(suffix_len: u8) u8 {
-                return @sizeOf(LeafNode) + suffix_len;
+            fn byte_size(suffix_len: u8) usize {
+                return @sizeOf(LeafNode) + @intCast(usize, suffix_len);
             }
 
-            pub fn init(branch_depth: u8, key: *const [key_length]u8, value: T, hash: Hash) !*NodeHeader {
+            pub fn init(branch_depth: u8, key: *const [key_length]u8, value: T, hash: Hash) !*LeafNode {
                 const new_suffix_len = key_length - branch_depth;
                 const allocation = try allocator.allocWithOptions(u8, byte_size(new_suffix_len), @alignOf(LeafNode), null);
                 const new = @ptrCast(*LeafNode, allocation);
@@ -526,11 +544,15 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 const new_suffix = new.suffixSlice();
                 const key_start = key_length - new_suffix.len;
                 mem.copy(u8, new.suffixSlice(), key[key_start..key_length]);
-                return &new.header;
+                return new;
             }
 
             fn raw(self: *LeafNode) []u8 {
-                return @ptrCast([*]u8, self)[0..byte_size(self.suffix_len)];
+                return @ptrCast([*] align(@alignOf(LeafNode)) u8, self)[0..byte_size(self.suffix_len)]; // TODO add alignment
+            }
+
+            fn head(self: *LeafNode) *NodeHeader {
+                return &self.header;
             }
 
             pub fn ref(self: *LeafNode) allocError!*NodeHeader {
@@ -541,10 +563,10 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                     const new = @ptrCast(*LeafNode, allocation);
                     mem.copy(u8, new.raw(), self.raw());
                     new.ref_count = 1;
-                    return &new.header;
+                    return new.head();
                 } else {
                     self.ref_count += 1;
-                    return &self.header;
+                    return self.head();
                 }
             }
 
@@ -556,7 +578,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             }
 
             fn suffixSlice(self: *LeafNode) []u8 {
-                const ptr = @intToPtr([*]u8, @ptrToInt(self) + @sizeOf(@This()));
+                const ptr = @intToPtr([*]u8, @ptrToInt(self) + @sizeOf(LeafNode));
                 return ptr[0..self.suffix_len];
             }
 
@@ -579,58 +601,43 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
             pub fn get(self: *LeafNode, depth: u8, key: u8) ?*NodeHeader {
                 const index = depth - (key_length - self.suffix_len);
                 // The formula used here is different from the one of the inner node as key_length > suffix_length.
-                if (depth < key_length and self.suffixSlice()[index] == key) return &self.header;
+                if (depth < key_length and self.suffixSlice()[index] == key) return self.head();
                 return null;
             }
 
             pub fn put(self: *LeafNode, depth: u8, key: *const [key_length]u8, value: T, single_owner: bool) allocError!*NodeHeader {
-                _ = depth;
-                _ = key;
-                _ = value;
                 _ = single_owner;
-                return &self.header;
+                const suffix = self.suffixSlice();
+                var branch_depth = depth;
+                var suffix_index: u8 = 0;
+                while (branch_depth < key_length) : ({branch_depth += 1; suffix_index += 1;}) {
+                    if (key[branch_depth] != suffix[suffix_index]) break;
+                } else {
+                    return self.head();
+                }
 
-                // while (depth < key_length and self.key[depth] != key[depth]) depth += 1;
 
-                // if (depth == key_length) {
-                //     return &self.header;
-                // }
+                const branch_node = try InnerNode.init(branch_depth, key);
+                const sibling_node = try LeafNode.init(branch_depth + 1, key, value, keyHash(key));
 
-                // _ = value;
+                const left_byte_key = suffix[suffix_index];
+                const right_byte_key = key[branch_depth];
 
-                // const sibling = LeafNode.init(key, value);
+                _ = try branch_node.cuckooPut(left_byte_key, self.head()); // We know that these can't fail and won't reallocate.
+                _ = try branch_node.cuckooPut(right_byte_key, sibling_node.head());
+                branch_node.hash = xorHash(self.hash, sibling_node.hash);
+                branch_node.leaf_count = 2;
+                branch_node.segment_count = 2;
 
-                // const branchChildren = [];
-                // const leftIndex = this.key[depth];
-                // const rightIndex = key[depth];
-                // branchChildren[leftIndex] = this;
-                // branchChildren[rightIndex] = sibling;
-                // const branchChildbits = emptySet();
-                // setBit(branchChildbits, leftIndex);
-                // setBit(branchChildbits, rightIndex);
-                // const hash = hash_combine(this.hash, sibling.hash);
-
-                // return new Node(
-                // this.key,
-                // depth,
-                // branchChildbits,
-                // branchChildren,
-                // hash,
-                // 2,
-                // owner
-                // );
+                return branch_node.head();
             }
         };
 
         const Tree = struct {
             child: ?*NodeHeader = null,
 
-            pub fn init(child: ?*NodeHeader) !Tree {
-                var own_child = child;
-                if(own_child) |*c| {
-                    c.* = try c.*.ref();
-                }
-                return Tree{.child = own_child};
+            pub fn init() Tree {
+                return Tree{};
             }
 
             pub fn deinit(self: *Tree) void {
@@ -656,7 +663,7 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
                 if (self.child) |*child| {
                     child.* = try child.*.put(0, key, value, true);
                 } else {
-                    self.child = try LeafNode.init(0, key, value, keyHash(key[0..key_length]));
+                    self.child = (try LeafNode.init(0, key, value, keyHash(key))).head();
                 }
             }
     // get(key) {
@@ -791,35 +798,35 @@ fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Alloca
 test "create tree" {
     const key_length = 64;
     const PACT = makePACT(key_length, usize, std.testing.allocator);
-    var tree = try PACT.Tree.init(null);
+    var tree = PACT.Tree.init();
     defer tree.deinit();
 }
 
 test "empty tree has count 0" {
     const key_length = 64;
     const PACT = makePACT(key_length, usize, std.testing.allocator);
-    var tree = try PACT.Tree.init(null);
+    var tree = PACT.Tree.init();
     defer tree.deinit();
 
-    try expect(tree.count() == 0);
+    try expectEqual(tree.count(), 0);
 }
 
 test "single item tree has count 1" {
     const key_length = 64;
     const PACT = makePACT(key_length, usize, std.testing.allocator);
-    var tree = try PACT.Tree.init(null);
+    var tree = PACT.Tree.init();
     defer tree.deinit();
 
     const key:[key_length]u8 = [_]u8{0} ** key_length;
     try tree.put(&key, 42);
 
-    try expect(tree.count() == 1);
+    try expectEqual(tree.count(), 1);
 }
 
-test "immutable tree" {
+test "immutable tree fork" {
     const key_length = 64;
     const PACT = makePACT(key_length, usize, std.testing.allocator);
-    var tree = try PACT.Tree.init(null);
+    var tree = PACT.Tree.init();
     defer tree.deinit();
 
     var new_tree = try tree.fork();
@@ -828,15 +835,28 @@ test "immutable tree" {
     const key:[key_length]u8 = [_]u8{0} ** key_length;
     try new_tree.put(&key, 42);
 
-    try expect(tree.count() == 0);
-    try expect(new_tree.count() == 1);
+    try expectEqual(tree.count(), 0);
+    try expectEqual(new_tree.count(), 1);
 }
 
-test "put nothing -> get nothing" {
-    const trible_length = 64;
-    const PACT = makePACT(trible_length, usize, std.testing.allocator);
-    var key = [_]u8{0} ** trible_length;
-    var inner = try PACT.InnerNode.init(32, &key);
-    defer inner.rel();
-    try expect(inner.get(0, 0) == inner);
+test "multi item tree has correct count" {
+    const total_runs = 10;
+
+    var rnd = std.rand.DefaultPrng.init(0).random();
+    
+    const key_length = 64;
+    const PACT = makePACT(key_length, usize, std.testing.allocator);
+    var tree = PACT.Tree.init();
+    defer tree.deinit();
+
+    var key:[key_length]u8 = undefined;
+
+    var i: u40 = 0;
+    while(i < total_runs) : (i += 1) {
+        try expectEqual(tree.count(), i);
+
+        rnd.bytes(&key);
+        try tree.put(&key, rnd.int(usize));
+    }
+    try expectEqual(tree.count(), total_runs);
 }
