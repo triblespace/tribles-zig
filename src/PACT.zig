@@ -145,12 +145,14 @@ fn generate_hash_LUTs(comptime rng: std.rand.Random) Hash_LUT {
     return hash_lut;
 }
 
+/// Generates a byte -> byte lookup table for person hashing.
 fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
     const no_deps = [0]Byte_LUT{};
     return generate_rand_LUT(rng, no_deps[0..], 0b11111111);
 }
 
-fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Allocator) type {
+/// Define a PACT datastructure with the given parameters.
+pub fn makePACT(comptime key_length: u8, comptime T: type, allocator: std.mem.Allocator) type {
     return struct {
         const allocError = std.mem.Allocator.Error;
 
@@ -965,6 +967,8 @@ test "multi item tree has correct count" {
 
     var i: u40 = 0;
     while(i < total_runs) : (i += 1) {
+        std.debug.print("Inserted {d} of {d}...\n", .{i, total_runs});
+        
         try expectEqual(tree.count(), i);
 
         rnd.bytes(&key);
