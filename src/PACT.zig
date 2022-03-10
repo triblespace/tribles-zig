@@ -390,9 +390,14 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 ) bool {
                     //std.debug.print("setting: {d}\n", .{entry.key});
                     for (self.slots) |*slot| {
-                        if (slot.has(entry.key) or
-                            slot.isFree(hash_alt.isSet(slot.key), bucket_count, bucket_index))
-                        {
+                        if (slot.has(entry.key)) {
+                            //std.debug.print("did replace: {d}\n", .{entry.key});
+                            slot.* = entry;
+                            return true;
+                        }
+                    }
+                    for (self.slots) |*slot| {
+                        if (slot.isFree(hash_alt.isSet(slot.key), bucket_count, bucket_index)) {
                             //std.debug.print("did set: {d}\n", .{entry.key});
                             slot.* = entry;
                             return true;
@@ -416,19 +421,38 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     }
                 }
 
-                /// Displaces an existing slot with the .
-                pub fn displace(
+                /// Displaces a random existing slot.
+                pub fn displaceRandom(
                     self: *Bucket,
                     // / A random value to determine the slot to displace.
-                    randomly_displaced: u8,
+                    random_value: u8,
                     // / The entry that displaces an existing entry.
                     entry: Entry,
                 ) Entry {
-                    const index = randomly_displaced & (SLOT_COUNT - 1);
+                    const index = random_value & (SLOT_COUNT - 1);
                     const prev = self.slots[index];
                     self.slots[index] = entry;
                     //std.debug.print("{d} displaces {d}\n", .{entry.key, prev.key});
                     return prev;
+                }
+
+                /// Displaces the first slot that is using the alternate hash function.
+                pub fn displaceAlternate(
+                    self: *Bucket,
+                    // / Determines the hash function used for each key and is used to detect outdated (free) slots.
+                    hash_alt: *ByteBitset,
+                    // / The entry to be stored in the bucket.
+                    entry: Entry,
+                ) Entry {
+                    for (self.slots) |*slot| {
+                        if (hash_alt.isSet(slot.key)) {
+                            const prev = slot.*;
+                            slot.* = entry;
+                            return prev;
+                        }
+                    }
+                    std.debug.print("Somthing went wrong alt-displacing {d} in: {s}\n", .{entry.key, self});
+                    unreachable;
                 }
             };
 
@@ -479,7 +503,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = fmt;
                     _ = options;
 
-                    try writer.print("InnerNode ◁{d}:\n", .{self.ref_count});
+                    try writer.print("{*} ◁{d}:\n", .{&self, self.ref_count});
                     try writer.print("      depth: {d} | count: {d} | segment_count: {d}\n", .{self.branch_depth, self.leaf_count, self.segment_count});
                     try writer.print("       hash: {s}\n", .{self.child_sum_hash});
                     try writer.print("  key_infix: {s}\n", .{self.key_infix});
@@ -589,7 +613,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             fn grow(self: *InnerNode, allocator: std.mem.Allocator) !*InnerNode {
                 const new_bucket_count = self.bucket_count << 1;
                 //std.debug.print("Growing: {s}\n", .{self});
-                const allocation = try allocator.reallocAdvanced(self.raw(), @alignOf(InnerNode), byte_size(self.bucket_count), .exact);
+                const allocation = try allocator.reallocAdvanced(self.raw(), @alignOf(InnerNode), byte_size(new_bucket_count), .exact);
                 const new = @ptrCast(*InnerNode, allocation);
                 new.bucket_count = new_bucket_count;
                 const buckets = new.bucketSlice();
@@ -621,27 +645,36 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     var entry = Bucket.Entry.with(byte_key, value);
                     var buckets = node.bucketSlice();
                     var attempts: u8 = 0;
+                    var growable = (node.bucket_count != max_bucket_count);
+                    var alternate_hash = false;
                     while (true) {
+                        //std.debug.print("put loop: {d} with rand: {d} and {d} buckets\n", .{entry.key, random, node.bucket_count});
                         random = rand_lut[random ^ entry.key];
-                        const alternate_hash = (node.bucket_count != max_bucket_count) and attempts != 0 and (random & 1 == 1); //TODO: think about probability skew
                         const bucket_index = hashByteKey(alternate_hash, node.bucket_count, entry.key);
 
-                        if (buckets[bucket_index].put(&node.hash_alt, node.bucket_count, bucket_index, entry)) {
-                            node.child_set.set(entry.key);
-                            node.hash_alt.setValue(entry.key, alternate_hash);
-                            assert(node.child_set.isSet(entry.key));
-                            return node;
-                        }
-                        entry = buckets[bucket_index].displace(random, entry); // TODO: toggle hash function and force other on displacement
                         node.child_set.set(entry.key);
                         node.hash_alt.setValue(entry.key, alternate_hash);
                         
-                        if (node.bucket_count != max_bucket_count) {
+                        if (buckets[bucket_index].put(&node.hash_alt, node.bucket_count, bucket_index, entry)) {
+                            assert(node.child_set.isSet(entry.key));
+                            return node;
+                        }
+                        if(growable) {
+                            entry = buckets[bucket_index].displaceRandom(random, entry);
+                            alternate_hash = !node.hash_alt.isSet(entry.key);
+                        } else {
+                            entry = buckets[bucket_index].displaceAlternate(&node.hash_alt, entry);
+                            alternate_hash = false;
+                        }
+                        
+                        if (growable) {
                             attempts += 1;
                             if (attempts == MAX_ATTEMPTS) {
                                 attempts = 0;
+                                alternate_hash = false;
                                 node = try node.grow(allocator);
                                 buckets = node.bucketSlice();
+                                growable = (node.bucket_count != max_bucket_count);
                             }
                         }
                     }
@@ -1125,9 +1158,9 @@ test "multi item tree has correct count" {
 const time = std.time;
 
 test "benchmark" {
-    const total_runs: usize = 1000;
+    const total_runs: usize = 100000;
 
-    comptime var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
 
     var timer = try time.Timer.start();
@@ -1145,14 +1178,45 @@ test "benchmark" {
     var i: u40 = 0;
     while(i < total_runs) : (i += 1) {
         rnd.bytes(&key);
+        const value = rnd.int(usize);
 
-        const t_start = timer.read();
+        timer.reset();
         
-        try tree.put(&key, rnd.int(usize));
+        try tree.put(&key, value);
 
-        const t_end = timer.read();
-        t_total += t_end - t_start;
+        t_total += timer.lap();
     }
 
     std.debug.print("Inserted {d} in {d}ns\n", .{total_runs, t_total});
 }
+
+test "benchmark std" {
+    const total_runs: usize = 100000;
+
+    var timer = try time.Timer.start();
+    var t_total: u64 = 0;
+
+    var rnd = std.rand.DefaultPrng.init(0).random();
+    
+    const key_length = 64;
+
+    var key:[key_length]u8 = undefined;
+
+    var map = std.hash_map.AutoHashMap([key_length]u8, usize).init(std.testing.allocator);
+    defer map.deinit();
+
+    var i: u40 = 0;
+    while(i < total_runs) : (i += 1) {
+        rnd.bytes(&key);
+        const value = rnd.int(usize);
+
+        timer.reset();
+        
+        try map.put(key, value);
+
+        t_total += timer.lap();
+    }
+
+    std.debug.print("Inserted {d} in {d}ns\n", .{total_runs, t_total});
+}
+
