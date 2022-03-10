@@ -333,12 +333,12 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     /// that is no longer pigeonholed to this index.
                     fn isFree(
                         self: *Entry, 
-                        alt_hash: bool, // /Answers which hash was used for this entry.
+                        uses_rand_hash: bool, // /Answers which hash was used for this entry.
                         current_count: u8, // / Current bucket count.
                         current_index: u8, // / This buckets current index.
                     ) bool {
                         //std.debug.print("isFree: free={s} or moved={s}\n", .{self.ptr == 0, current_index != hashByteKey(alt_hash, current_count, self.key)});
-                        return (self.ptr == 0) or (current_index != hashByteKey(alt_hash, current_count, self.key));
+                        return (self.ptr == 0) or (current_index != hashByteKey(uses_rand_hash, current_count, self.key));
                     }
                 };
 
@@ -380,7 +380,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn put(
                     self: *Bucket,
                     // / Determines the hash function used for each key and is used to detect outdated (free) slots.
-                    hash_alt: *ByteBitset,
+                    rand_hash_used: *ByteBitset,
                     // / The current bucket count. Is used to detect outdated (free) slots.
                     bucket_count: u8,
                     // / The current index the bucket has. Is used to detect outdated (free) slots.
@@ -397,7 +397,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         }
                     }
                     for (self.slots) |*slot| {
-                        if (slot.isFree(hash_alt.isSet(slot.key), bucket_count, bucket_index)) {
+                        if (slot.isFree(rand_hash_used.isSet(slot.key), bucket_count, bucket_index)) {
                             //std.debug.print("did set: {d}\n", .{entry.key});
                             slot.* = entry;
                             return true;
@@ -422,7 +422,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 /// Displaces a random existing slot.
-                pub fn displaceRandom(
+                pub fn displaceRandomly(
                     self: *Bucket,
                     // / A random value to determine the slot to displace.
                     random_value: u8,
@@ -437,15 +437,15 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 /// Displaces the first slot that is using the alternate hash function.
-                pub fn displaceAlternate(
+                pub fn displaceRandHashOnly(
                     self: *Bucket,
                     // / Determines the hash function used for each key and is used to detect outdated (free) slots.
-                    hash_alt: *ByteBitset,
+                    rand_hash_used: *ByteBitset,
                     // / The entry to be stored in the bucket.
                     entry: Entry,
                 ) Entry {
                     for (self.slots) |*slot| {
-                        if (hash_alt.isSet(slot.key)) {
+                        if (rand_hash_used.isSet(slot.key)) {
                             const prev = slot.*;
                             slot.* = entry;
                             return prev;
@@ -468,7 +468,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             child_sum_hash: Hash = .{.data=[_]u8{0} ** 16},
             key_infix: [32]u8,
             child_set: ByteBitset = ByteBitset.initEmpty(),
-            hash_alt: ByteBitset = ByteBitset.initEmpty(),
+            rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
 
             fn byte_size(bucket_count: u8) usize {
                 return @sizeOf(InnerNode) + (@intCast(usize, bucket_count) * @sizeOf(Bucket));
@@ -492,7 +492,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 // ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ 
 //                          bucket 1...31                         │
 // └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ 
-//
 
             pub fn format(
                     self: InnerNode,
@@ -508,15 +507,15 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     try writer.print("       hash: {s}\n", .{self.child_sum_hash});
                     try writer.print("  key_infix: {s}\n", .{self.key_infix});
                     try writer.print("  child_set: {s}\n", .{self.child_set});
-                    try writer.print("   hash_alt: {s}\n", .{self.hash_alt});
+                    try writer.print("   rand_hash_used: {s}\n", .{self.rand_hash_used});
                     try writer.print("   children: ", .{});
 
                     var child_iterator = self.child_set.iterator(.{.direction = .forward});
                     while(child_iterator.next()) |child_byte_key| {
                         const cast_child_byte_key = @intCast(u8, child_byte_key);
-                        const alternate_hash = self.hash_alt.isSet(cast_child_byte_key);
-                        const bucket_index = hashByteKey(alternate_hash, self.bucket_count, cast_child_byte_key);
-                        const hash_name = @as([]const u8, if (alternate_hash) "rnd" else "seq");
+                        const use_rand_hash = self.rand_hash_used.isSet(cast_child_byte_key);
+                        const bucket_index = hashByteKey(use_rand_hash, self.bucket_count, cast_child_byte_key);
+                        const hash_name = @as([]const u8, if (use_rand_hash) "rnd" else "seq");
                         try writer.print("|{d}:{s}@{d}", .{cast_child_byte_key, hash_name, bucket_index});
                     }
                     try writer.print("|\n", .{});
@@ -637,7 +636,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 
                 if (self.child_set.isSet(byte_key)) {
                     const buckets = self.bucketSlice();
-                    const index = hashByteKey(self.hash_alt.isSet(byte_key), self.bucket_count, byte_key);
+                    const index = hashByteKey(self.rand_hash_used.isSet(byte_key), self.bucket_count, byte_key);
                     buckets[index].update(Bucket.Entry.with(byte_key, value));
                     return self;
                 } else {
@@ -646,36 +645,43 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     var buckets = node.bucketSlice();
                     var attempts: u8 = 0;
                     var growable = (node.bucket_count != max_bucket_count);
-                    var alternate_hash = false;
+                    var base_size = (node.bucket_count == 1);
+                    var use_rand_hash = false;
                     while (true) {
                         //std.debug.print("put loop: {d} with rand: {d} and {d} buckets\n", .{entry.key, random, node.bucket_count});
                         random = rand_lut[random ^ entry.key];
-                        const bucket_index = hashByteKey(alternate_hash, node.bucket_count, entry.key);
+                        const bucket_index = hashByteKey(use_rand_hash, node.bucket_count, entry.key);
 
                         node.child_set.set(entry.key);
-                        node.hash_alt.setValue(entry.key, alternate_hash);
+                        node.rand_hash_used.setValue(entry.key, use_rand_hash);
                         
-                        if (buckets[bucket_index].put(&node.hash_alt, node.bucket_count, bucket_index, entry)) {
+                        if (buckets[bucket_index].put(&node.rand_hash_used, node.bucket_count, bucket_index, entry)) {
                             assert(node.child_set.isSet(entry.key));
                             return node;
                         }
-                        if(growable) {
-                            entry = buckets[bucket_index].displaceRandom(random, entry);
-                            alternate_hash = !node.hash_alt.isSet(entry.key);
-                        } else {
-                            entry = buckets[bucket_index].displaceAlternate(&node.hash_alt, entry);
-                            alternate_hash = false;
+
+                        if (base_size) {
+                            base_size = false;
+                            node = try node.grow(allocator);
+                            buckets = node.bucketSlice();
+                            continue;
                         }
-                        
-                        if (growable) {
+
+                        if(growable) {
+                            entry = buckets[bucket_index].displaceRandomly(random, entry);
+                            use_rand_hash = !node.rand_hash_used.isSet(entry.key);
+
                             attempts += 1;
                             if (attempts == MAX_ATTEMPTS) {
                                 attempts = 0;
-                                alternate_hash = false;
+                                use_rand_hash = false;
                                 node = try node.grow(allocator);
                                 buckets = node.bucketSlice();
                                 growable = (node.bucket_count != max_bucket_count);
                             }
+                        } else {
+                            entry = buckets[bucket_index].displaceRandHashOnly(&node.rand_hash_used, entry);
+                            use_rand_hash = false;
                         }
                     }
                 }
@@ -686,13 +692,15 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 return self.child_set.isSet(byte_key);
             }
 
+            // Contract: Key looked up must exist. Ensure with cuckooHas.
             fn cuckooGet(self: *InnerNode, byte_key: u8) *NodeHeader {
-                const bucket_index = hashByteKey(self.hash_alt.isSet(byte_key), self.bucket_count, byte_key);
+                assert(self.child_set.isSet(byte_key));
+                const bucket_index = hashByteKey(self.rand_hash_used.isSet(byte_key), self.bucket_count, byte_key);
                 return self.bucketSlice()[bucket_index].get(byte_key);
             }
 
             fn cuckooUpdate(self: *InnerNode, byte_key: u8, ptr: *NodeHeader) void {
-                const bucket_index = hashByteKey(self.hash_alt.isSet(byte_key), self.bucket_count, byte_key);
+                const bucket_index = hashByteKey(self.rand_hash_used.isSet(byte_key), self.bucket_count, byte_key);
                 return self.bucketSlice()[bucket_index].update(Bucket.Entry.with(byte_key, ptr));
             }
 
@@ -1157,8 +1165,17 @@ test "multi item tree has correct count" {
 
 const time = std.time;
 
+//                        | <------ 48 bit -------->|
+// kernel space: | 1....1 | significant | alignment |
+// user space:   | 0....1 | significant | alignemnt |
+
+// 8:tag = 0 | 56:suffix
+// 8:tag = 1 | 8:infix | 48:leaf ptr
+// 8:tag = 2 | 8:infix | 48:inner ptr
+
+
 test "benchmark" {
-    const total_runs: usize = 100000;
+    const total_runs: usize = 10000000;
 
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
@@ -1193,6 +1210,9 @@ test "benchmark" {
 test "benchmark std" {
     const total_runs: usize = 100000;
 
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    const gpa = general_purpose_allocator.allocator();
+
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
@@ -1202,7 +1222,7 @@ test "benchmark std" {
 
     var key:[key_length]u8 = undefined;
 
-    var map = std.hash_map.AutoHashMap([key_length]u8, usize).init(std.testing.allocator);
+    var map = std.hash_map.AutoHashMap([key_length]u8, usize).init(gpa);
     defer map.deinit();
 
     var i: u40 = 0;
