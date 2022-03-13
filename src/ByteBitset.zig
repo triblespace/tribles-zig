@@ -1,80 +1,42 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
+// TODO: Make this a comptime field once those are fixed
+/// The number of items in this bit set
+pub const bit_length: usize = size;
+
+/// The integer type used to represent a mask in this bit set
+pub const MaskInt = u64;
+
+/// The integer type used to shift a mask in this bit set
+pub const ShiftInt = std.math.Log2Int(MaskInt);
+
+// bits in one mask
+const mask_len = @bitSizeOf(MaskInt);
+// total number of masks
+const num_masks = (size + mask_len - 1) / mask_len;
+// padding bits in the last mask (may be 0)
+const last_pad_bits = mask_len * num_masks - size;
+// Mask of valid bits in the last mask.
+// All functions will ensure that the invalid
+// bits in the last mask are zero.
+pub const last_item_mask = ~@as(MaskInt, 0) >> last_pad_bits;
+
 /// A bit set with static size, which is backed by an array of usize.
 /// This set is good for sets with a larger size, but may use
 /// more bytes than necessary if your set is small.
-pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
-    const mask_info: std.builtin.TypeInfo = @typeInfo(MaskIntType);
-
-    // Make sure the mask int is indeed an int
-    if (mask_info != .Int) @compileError("ArrayBitSet can only operate on integer masks, but was passed " ++ @typeName(MaskIntType));
-
-    // It must also be unsigned.
-    if (mask_info.Int.signedness != .unsigned) @compileError("ArrayBitSet requires an unsigned integer mask type, but was passed " ++ @typeName(MaskIntType));
-
-    // And it must not be empty.
-    if (MaskIntType == u0)
-        @compileError("ArrayBitSet requires a sized integer for its mask int.  u0 does not work.");
-
-    const byte_size = std.mem.byte_size_in_bits;
-
-    // We use shift and truncate to decompose indices into mask indices and bit indices.
-    // This operation requires that the mask has an exact power of two number of bits.
-    if (!std.math.isPowerOfTwo(@bitSizeOf(MaskIntType))) {
-        var desired_bits = std.math.ceilPowerOfTwoAssert(usize, @bitSizeOf(MaskIntType));
-        if (desired_bits < byte_size) desired_bits = byte_size;
-        const FixedMaskType = std.meta.Int(.unsigned, desired_bits);
-        @compileError("ArrayBitSet was passed integer type " ++ @typeName(MaskIntType) ++
-            ", which is not a power of two.  Please round this up to a power of two integer size (i.e. " ++ @typeName(FixedMaskType) ++ ").");
-    }
-
-    // Make sure the integer has no padding bits.
-    // Those would be wasteful here and are probably a mistake by the user.
-    // This case may be hit with small powers of two, like u4.
-    if (@bitSizeOf(MaskIntType) != @sizeOf(MaskIntType) * byte_size) {
-        var desired_bits = @sizeOf(MaskIntType) * byte_size;
-        desired_bits = std.math.ceilPowerOfTwoAssert(usize, desired_bits);
-        const FixedMaskType = std.meta.Int(.unsigned, desired_bits);
-        @compileError("ArrayBitSet was passed integer type " ++ @typeName(MaskIntType) ++
-            ", which contains padding bits.  Please round this up to an unpadded integer size (i.e. " ++ @typeName(FixedMaskType) ++ ").");
-    }
-
-    return packed struct {
-        const Self = @This();
-
-        // TODO: Make this a comptime field once those are fixed
-        /// The number of items in this bit set
-        pub const bit_length: usize = size;
-
-        /// The integer type used to represent a mask in this bit set
-        pub const MaskInt = MaskIntType;
-
-        /// The integer type used to shift a mask in this bit set
-        pub const ShiftInt = std.math.Log2Int(MaskInt);
-
-        // bits in one mask
-        const mask_len = @bitSizeOf(MaskInt);
-        // total number of masks
-        const num_masks = (size + mask_len - 1) / mask_len;
-        // padding bits in the last mask (may be 0)
-        const last_pad_bits = mask_len * num_masks - size;
-        // Mask of valid bits in the last mask.
-        // All functions will ensure that the invalid
-        // bits in the last mask are zero.
-        pub const last_item_mask = ~@as(MaskInt, 0) >> last_pad_bits;
-
+pub fn ByteBitset = packed struct {
         /// The bit masks, ordered with lower indices first.
         /// Padding bits at the end are undefined.
         masks: [num_masks]MaskInt,
 
         /// Creates a bit set with no elements present.
-        pub fn initEmpty() Self {
+        pub fn initEmpty() ByteBitset {
             return .{ .masks = [_]MaskInt{0} ** num_masks };
         }
 
         /// Creates a bit set with all elements present.
-        pub fn initFull() Self {
+        pub fn initFull() ByteBitset {
             if (num_masks == 0) {
                 return .{ .masks = .{} };
             } else {
@@ -83,21 +45,21 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         }
 
         /// Returns the number of bits in this bit set
-        pub inline fn capacity(self: Self) usize {
+        pub inline fn capacity(self: ByteBitset) usize {
             _ = self;
             return bit_length;
         }
 
         /// Returns true if the bit at the specified index
         /// is present in the set, false otherwise.
-        pub fn isSet(self: Self, index: usize) bool {
+        pub fn isSet(self: ByteBitset, index: usize) bool {
             assert(index < bit_length);
             if (num_masks == 0) return false; // doesn't compile in this case
             return (self.masks[maskIndex(index)] & maskBit(index)) != 0;
         }
 
         /// Returns the total number of set bits in this bit set.
-        pub fn count(self: Self) usize {
+        pub fn count(self: ByteBitset) usize {
             var total: usize = 0;
             for (self.masks) |mask| {
                 total += @popCount(MaskInt, mask);
@@ -107,7 +69,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Changes the value of the specified bit of the bit
         /// set to match the passed boolean.
-        pub fn setValue(self: *Self, index: usize, value: bool) void {
+        pub fn setValue(self: *ByteBitset, index: usize, value: bool) void {
             assert(index < bit_length);
             if (num_masks == 0) return; // doesn't compile in this case
             const bit = maskBit(index);
@@ -117,21 +79,21 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         }
 
         /// Adds a specific bit to the bit set
-        pub fn set(self: *Self, index: usize) void {
+        pub fn set(self: *ByteBitset, index: usize) void {
             assert(index < bit_length);
             if (num_masks == 0) return; // doesn't compile in this case
             self.masks[maskIndex(index)] |= maskBit(index);
         }
 
         /// Removes a specific bit from the bit set
-        pub fn unset(self: *Self, index: usize) void {
+        pub fn unset(self: *ByteBitset, index: usize) void {
             assert(index < bit_length);
             if (num_masks == 0) return; // doesn't compile in this case
             self.masks[maskIndex(index)] &= ~maskBit(index);
         }
 
         /// Flips a specific bit in the bit set
-        pub fn toggle(self: *Self, index: usize) void {
+        pub fn toggle(self: *ByteBitset, index: usize) void {
             assert(index < bit_length);
             if (num_masks == 0) return; // doesn't compile in this case
             self.masks[maskIndex(index)] ^= maskBit(index);
@@ -139,14 +101,14 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Flips all bits in this bit set which are present
         /// in the toggles bit set.
-        pub fn toggleSet(self: *Self, toggles: Self) void {
+        pub fn toggleSet(self: *ByteBitset, toggles: Self) void {
             for (self.masks) |*mask, i| {
                 mask.* ^= toggles.masks[i];
             }
         }
 
         /// Flips every bit in the bit set.
-        pub fn toggleAll(self: *Self) void {
+        pub fn toggleAll(self: *ByteBitset) void {
             for (self.masks) |*mask| {
                 mask.* = ~mask.*;
             }
@@ -160,7 +122,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Performs a union of two bit sets, and stores the
         /// result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in either input.
-        pub fn setUnion(self: *Self, other: Self) void {
+        pub fn setUnion(self: *ByteBitset, other: ByteBitset) void {
             for (self.masks) |*mask, i| {
                 mask.* |= other.masks[i];
             }
@@ -169,7 +131,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// Performs an intersection of two bit sets, and stores
         /// the result in the first one.  Bits in the result are
         /// set if the corresponding bits were set in both inputs.
-        pub fn setIntersection(self: *Self, other: Self) void {
+        pub fn setIntersection(self: *ByteBitset, other: ByteBitset) void {
             for (self.masks) |*mask, i| {
                 mask.* &= other.masks[i];
             }
@@ -177,7 +139,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Finds the index of the first set bit.
         /// If no bits are set, returns null.
-        pub fn findFirstSet(self: Self) ?usize {
+        pub fn findFirstSet(self: ByteBitset) ?usize {
             var offset: usize = 0;
             const mask = for (self.masks) |mask| {
                 if (mask != 0) break mask;
@@ -188,7 +150,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
 
         /// Finds the index of the first set bit, and unsets it.
         /// If no bits are set, returns null.
-        pub fn toggleFirstSet(self: *Self) ?usize {
+        pub fn toggleFirstSet(self: *ByteBitset) ?usize {
             var offset: usize = 0;
             const mask = for (self.masks) |*mask| {
                 if (mask.* != 0) break mask;
@@ -203,7 +165,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         /// The default options (.{}) will iterate indices of set bits in
         /// ascending order.  Modifications to the underlying bit set may
         /// or may not be observed by the iterator.
-        pub fn iterator(self: *const Self, comptime options: IteratorOptions) Iterator(options) {
+        pub fn iterator(self: *const ByteBitset, comptime options: IteratorOptions) Iterator(options) {
             return Iterator(options).init(&self.masks, last_item_mask);
         }
 
@@ -220,8 +182,7 @@ pub fn ArrayBitSet(comptime MaskIntType: type, comptime size: usize) type {
         fn boolMaskBit(index: usize, value: bool) MaskInt {
             return @as(MaskInt, @boolToInt(value)) << @intCast(ShiftInt, index);
         }
-    };
-}
+};
 
 /// Options for configuring an iterator over a bit set
 pub const IteratorOptions = struct {
@@ -246,11 +207,11 @@ pub const IteratorOptions = struct {
     };
 };
 
+const kind = options.kind;
+const direction = options.direction;
+
 // The iterator is reusable between several bit set types
-fn BitSetIterator(comptime MaskInt: type, comptime options: IteratorOptions) type {
-    const ShiftInt = std.math.Log2Int(MaskInt);
-    const kind = options.kind;
-    const direction = options.direction;
+fn ByteBitsetIterator(comptime MaskInt: type, comptime options: IteratorOptions) type {
     return struct {
         const Self = @This();
 
