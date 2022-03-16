@@ -743,7 +743,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         branch_depth += 1;
                         infix_index += 1;
                     }) {
-                        if (key[branch_depth] != self.body().key_infix[infix_index]) break;
+                        const infix = self.body().key_infix;
+                        if (key[branch_depth] != infix[infix_index]) break;
                     } else {
                         // The entire compressed infix above this node matched with the key.
                         const byte_key = key[branch_depth];
@@ -772,7 +773,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                             self_or_copy.body().child_sum_hash = new_hash;
                             self_or_copy.body().leaf_count = new_count;
                             self_or_copy.body().segment_count = new_segment_count;
-                            return self_or_copy.cuckooUpdate(self_or_copy.body().branch_depth, new_child);
+                            self_or_copy.cuckooUpdate(new_child);
+                            return Node.from(Head, self_or_copy);
                         } else {
                             const new_child_node = try InitLeafNode(branch_depth, key, value, keyHash(key), allocator);
                             const new_hash = Hash.xor(self.hash(), new_child_node.hash());
@@ -792,12 +794,14 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     const new_branch_node_above = try InnerNode(1).init(start_depth, branch_depth, key, allocator);
                     const new_sibling_leaf_node = try InitLeafNode(branch_depth, key, value, keyHash(key), allocator);
 
-                    self.key = self.body().key_infix[infix_index];
-                    _ = try new_branch_node_above.cuckooPut(Node.from(Head, self), allocator); // We know that these can't fail and won't reallocate.
+                    const infix = self.body().key_infix;
+                    var new_head = self;
+                    new_head.key = infix[infix_index];
+                    _ = try new_branch_node_above.cuckooPut(Node.from(Head, new_head), allocator); // We know that these can't fail and won't reallocate.
                     _ = try new_branch_node_above.cuckooPut(new_sibling_leaf_node, allocator);
 
-                    new_branch_node_above.body().child_sum_hash = Hash.xor(self.hash(), new_sibling_leaf_node.hash());
-                    new_branch_node_above.body().leaf_count = self.body().leaf_count + 1;
+                    new_branch_node_above.body().child_sum_hash = Hash.xor(new_head.hash(), new_sibling_leaf_node.hash());
+                    new_branch_node_above.body().leaf_count = new_head.body().leaf_count + 1;
                     new_branch_node_above.body().segment_count = 3;
                     // We need to check if this insered moved our branchDepth across a segment boundary.
                     // const segmentCount =
@@ -897,7 +901,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 fn cuckooHas(self: Head, byte_key: u8) bool {
-                    return self.child_set.isSet(byte_key);
+                    return self.body().child_set.isSet(byte_key);
                 }
 
                 // Contract: Key looked up must exist. Ensure with cuckooHas.
