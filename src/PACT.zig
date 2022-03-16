@@ -191,8 +191,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
         const Node = packed struct {
             tag: NodeTag,
-            head: packed union {
-                none,
+            head: Head,
+
+            const Head = packed union {
+                none: void,
                 inner1: InnerNode(1),
                 inner2: InnerNode(2),
                 inner4: InnerNode(4),
@@ -207,7 +209,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 leaf16: LeafNode(16),
                 leaf32: LeafNode(32),
                 leaf64: LeafNode(64),
-            },
+            };
 
             fn bucketCountToTag(comptime bucket_count: u8) NodeTag {
                 return switch (bucket_count) {
@@ -1062,7 +1064,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
         }
 
         const Tree = struct {
-            child: Node = Node.none,
+            child: Node = Node{ .tag = .none, .head = .{ .none = void{} } },
             allocator: std.mem.Allocator,
 
             pub fn init(allocator: std.mem.Allocator) Tree {
@@ -1082,7 +1084,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             }
 
             pub fn put(self: *Tree, key: *const [key_length]u8, value: T) !void {
-                if (self.child == Node.none) {
+                if (self.child.tag == .none) {
                     self.child = try InitLeafNode(0, key, value, keyHash(key), self.allocator);
                 } else {
                     self.child = try self.child.put(0, key, value, true, self.allocator);
