@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-const ByteBitset = struct {
+pub const ByteBitset = packed struct {
     bits: u256,
 
     pub fn initEmpty() ByteBitset {
