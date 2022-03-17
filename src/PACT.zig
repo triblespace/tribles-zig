@@ -719,9 +719,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                    if (start_depth == at_depth) return self.key;
-                    if (at_depth < self.branch_depth) return self.body.suffix[(start_depth + @as(u8, self.body.infix.len)) - self.branch_depth];
-                    return null;
+                    if (self.branch_depth <= at_depth or at_depth < start_depth) return null;
+                    if (at_depth < start_depth + head_infix_len) return self.suffix[at_depth - start_depth];
+                    return self.body.suffix[(start_depth + @as(u8, self.body.infix.len)) - self.branch_depth];
                 }
 
                 pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -784,14 +784,18 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     const new_branch_node_above = try InnerNode(1).init(start_depth, branch_depth, key, allocator);
                     const new_sibling_leaf_node = try InitLeafNode(branch_depth, key, value, keyHash(key), allocator);
 
-                    const infix = self.body.infix;
-                    var new_head = self;
-                    new_head.key = infix[infix_index];
-                    _ = try new_branch_node_above.cuckooPut(Node.from(Head, new_head), allocator); // We know that these can't fail and won't reallocate.
+                    var recycled_self = self;
+                    recycled_self.branch_depth = branch_depth;
+
+                    for (recycled_self.infix) |*byte, i| {
+                        byte.* = self.peek(start_depth, branch_depth + i) orelse break;
+                    }
+
+                    _ = try new_branch_node_above.cuckooPut(Node.from(Head, recycled_self), allocator); // We know that these can't fail and won't reallocate.
                     _ = try new_branch_node_above.cuckooPut(new_sibling_leaf_node, allocator);
 
-                    new_branch_node_above.body.child_sum_hash = Hash.xor(new_head.hash(), new_sibling_leaf_node.hash());
-                    new_branch_node_above.body.leaf_count = new_head.body.leaf_count + 1;
+                    new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(), new_sibling_leaf_node.hash());
+                    new_branch_node_above.body.leaf_count = recycled_self.body.leaf_count + 1;
                     new_branch_node_above.body.segment_count = 3;
                     // We need to check if this insered moved our branchDepth across a segment boundary.
                     // const segmentCount =
@@ -819,22 +823,25 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
                     const allocation = try allocator.allocWithOptions(Body, 1, BODY_ALIGNMENT, null);
-                    var new = Head{ .key = self.key, .ptr = @intCast(u48, @ptrToInt(&allocation[0])) };
+                    const new_body = @ptrCast(*Body, allocation);
 
-                    new.body.* = self.body.*;
-                    new.body.ref_count = 1;
+                    new_body.* = self.body.*;
+                    new_body.ref_count = 1;
 
-                    var child_iterator = new.body.child_set;
+                    var new_head = self;
+                    new_head.body = self.body;
+
+                    var child_iterator = new_body.child_set;
                     while (child_iterator.drainNext(true)) |child_byte_key| {
                         const cast_child_byte_key = @intCast(u8, child_byte_key);
-                        const child = new.cuckooGet(cast_child_byte_key);
+                        const child = new_head.cuckooGet(cast_child_byte_key);
                         const potential_child_copy = try child.ref(allocator);
                         if (potential_child_copy) |new_child| {
-                            new.cuckooUpdate(new_child);
+                            new_head.cuckooUpdate(new_child);
                         }
                     }
 
-                    return new;
+                    return new_head;
                 }
 
                 fn grow(self: Head, allocator: std.mem.Allocator) allocError!GrownHead {
@@ -844,7 +851,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         const allocation = try allocator.reallocAdvanced(std.mem.asBytes(self.body), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                         const new_body = @ptrCast(*GrownHead.Body, allocation);
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
-                        return GrownHead{ .key = self.key, .ptr = @intCast(u48, @ptrToInt(new_body)) };
+                        return GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body };
                     }
                 }
 
@@ -987,7 +994,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
                         // Reference counter exhausted, we need to make a copy of this node.
                         const new_body = try allocator.create(Body);
-                        var new = Head{ .key = self.key, .ptr = @intCast(u48, @ptrToInt(new_body)) };
+                        var new = Head{ .suffix = self.suffix, .body = new_body };
                         new.body.* = self.body.*;
                         new.body.ref_count = 1;
                         return Node.from(Head, new);
