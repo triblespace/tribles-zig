@@ -665,18 +665,18 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn init(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
                     const allocation = try allocator.allocWithOptions(Body, 1, BODY_ALIGNMENT, null);
                     const new_body = @ptrCast(*Body, allocation);
-                    new_body.* = Body{ .ref_count = 1, .branch_depth = branch_depth, .leaf_count = 1, .segment_count = 1, .infix = undefined };
+                    new_body.* = Body{ .ref_count = 1, .leaf_count = 1, .segment_count = 1, .infix = undefined };
 
                     const body_infix_length = @minimum(branch_depth, new_body.infix.len);
                     const body_infix_start = new_body.infix.len - body_infix_length;
                     const key_start = branch_depth - body_infix_length;
                     mem.copy(u8, new_body.infix[body_infix_start..new_body.infix.len], key[key_start..branch_depth]);
 
-                    var new_head = Head{ .body = new_body };
+                    var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
 
-                    const head_infix_length = @minimum(key.len - branch_depth, new_head.infix.len);
-                    const key_end = branch_depth + head_infix_length;
-                    mem.copy(u8, new_head.infix[0..head_infix_length], key[branch_depth..key_end]);
+                    const head_infix_length = @minimum(key.len - start_depth, new_head.infix.len);
+                    const key_end = start_depth + head_infix_length;
+                    mem.copy(u8, new_head.infix[0..head_infix_length], key[start_depth..key_end]);
 
                     return new_head;
                 }
@@ -720,8 +720,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
                     if (self.branch_depth <= at_depth or at_depth < start_depth) return null;
-                    if (at_depth < start_depth + head_infix_len) return self.suffix[at_depth - start_depth];
-                    return self.body.suffix[(start_depth + @as(u8, self.body.infix.len)) - self.branch_depth];
+                    if (at_depth < start_depth + head_infix_len) return self.infix[at_depth - start_depth];
+                    return self.body.infix[(start_depth + @as(u8, self.body.infix.len)) - self.branch_depth];
                 }
 
                 pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -788,7 +788,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     recycled_self.branch_depth = branch_depth;
 
                     for (recycled_self.infix) |*byte, i| {
-                        byte.* = self.peek(start_depth, branch_depth + i) orelse break;
+                        byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
                     }
 
                     _ = try new_branch_node_above.cuckooPut(Node.from(Head, recycled_self), allocator); // We know that these can't fail and won't reallocate.
@@ -917,7 +917,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
         }
 
         fn InitLeafNode(start_depth: u8, key: *const [key_length]u8, value: T, key_hash: Hash, allocator: std.mem.Allocator) allocError!Node {
-            const suffix_lenth = key_length - (start_depth + head_suffix_len);
+            const suffix_lenth = key_length - start_depth;
             if (suffix_lenth <= 8) {
                 return Node.from(LeafNode(8), try LeafNode(8).init(start_depth, key, value, key_hash, allocator));
             }
@@ -966,14 +966,14 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     const new_body = try allocator.create(Body);
                     new_body.* = Body{ .key_hash = key_hash, .value = value };
 
-                    const key_start = (key_length - body_suffix_len);
-                    mem.copy(u8, new_body.suffix[0..body_suffix_len], key[key_start..key_length]);
+                    const key_start = (key.len - new_body.suffix.len);
+                    mem.copy(u8, new_body.suffix[0..new_body.suffix.len], key[key_start..key.len]);
 
                     var new_head = Head{ .body = new_body };
 
-                    const head_suffix_length = @minimum(key.len - branch_depth, new_head.infix.len);
-                    const key_end = branch_depth + head_infix_length;
-                    mem.copy(u8, new_head.suffix[0..head_infix_length], key[branch_depth..key_end]);
+                    const head_suffix_length = @minimum(key.len - start_depth, new_head.suffix.len);
+                    const key_end = start_depth + head_suffix_length;
+                    mem.copy(u8, new_head.suffix[0..head_suffix_length], key[start_depth..key_end]);
 
                     return new_head;
                 }
@@ -1038,7 +1038,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
                     var set = ByteBitset.initEmpty();
                     const own_key = self.peek(start_depth, at_depth).?;
-                    result_set.setIntersection(own_key);
+                    set.set(own_key);
+                    result_set.setIntersection(set);
                 }
 
                 pub fn get(self: Head, start_depth: u8, at_depth: u8, key: u8) Node {
@@ -1064,7 +1065,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, keyHash(key), allocator);
 
                     for (recycled_self.suffix) |*byte, i| {
-                        byte.* = self.peek(start_depth, branch_depth + i) orelse break;
+                        byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
                     }
 
                     _ = try new_branch_node_above.cuckooPut(Node.from(Head, recycled_self), allocator); // We know that these can't fail and won't reallocate.
