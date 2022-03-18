@@ -642,10 +642,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = fmt;
                     _ = options;
 
-                    try writer.print("{*} ◁{d}:\n", .{ &self, self.body.ref_count });
+                    try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
                     try writer.print("      depth: {d} | count: {d} | segment_count: {d}\n", .{ self.branch_depth, self.body.leaf_count, self.body.segment_count });
                     try writer.print("       hash: {s}\n", .{self.body.child_sum_hash});
-                    try writer.print("  infix: {s}\n", .{self.body.infix});
+                    try writer.print("  infixes: {s} > {s}\n", .{self.infix, self.body.infix});
                     try writer.print("  child_set: {s}\n", .{self.body.child_set});
                     try writer.print("   rand_hash_used: {s}\n", .{self.body.rand_hash_used});
                     try writer.print("   children: ", .{});
@@ -848,8 +848,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     if (bucket_count == max_bucket_count) {
                         return self;
                     } else {
+                        std.debug.print("Grow:{}\n {} -> {} : {} -> {} \n", .{self, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body)});
                         const allocation = try allocator.reallocAdvanced(std.mem.asBytes(self.body), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                         const new_body = @ptrCast(*GrownHead.Body, allocation);
+                        std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
                         return GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body };
                     }

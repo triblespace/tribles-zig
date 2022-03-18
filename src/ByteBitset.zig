@@ -10,7 +10,7 @@ pub const ByteBitset = packed struct {
 
     /// Creates a bit set with all elements present.
     pub fn initFull() ByteBitset {
-        return ByteBitset{ .bits = .{ ~0, ~0, ~0, ~0 } };
+        return ByteBitset{ .bits = .{ ~@as(u64, 0), ~@as(u64, 0), ~@as(u64, 0), ~@as(u64, 0) } };
     }
 
     pub fn isEmpty(self: *const ByteBitset) bool {
@@ -18,11 +18,11 @@ pub const ByteBitset = packed struct {
     }
 
     pub fn set(self: *ByteBitset, index: u8) void {
-        self.bits[index >> 6] |= 1 << (index & 0b00111111);
+        self.bits[index >> 6] |= @as(u64, 1) << @truncate(u6, index);
     }
 
     pub fn unset(self: *ByteBitset, index: u8) void {
-        self.bits[index >> 6] &= ~(1 << (index & 0b00111111));
+        self.bits[index >> 6] &= ~(@as(u64, 1) << @truncate(u6, index));
     }
 
     pub fn setValue(self: *ByteBitset, index: u8, value: bool) void {
@@ -34,10 +34,10 @@ pub const ByteBitset = packed struct {
     }
 
     pub fn setAll(self: *ByteBitset) void {
-        self.bits[0] = ~0;
-        self.bits[1] = ~0;
-        self.bits[2] = ~0;
-        self.bits[3] = ~0;
+        self.bits[0] = ~@as(u64, 0);
+        self.bits[1] = ~@as(u64, 0);
+        self.bits[2] = ~@as(u64, 0);
+        self.bits[3] = ~@as(u64, 0);
     }
 
     pub fn unsetAll(self: *ByteBitset) void {
@@ -48,26 +48,26 @@ pub const ByteBitset = packed struct {
     }
 
     pub fn isSet(self: *const ByteBitset, index: u8) bool {
-        return (self.bits[index >> 6] & (1 << (index & 0b00111111))) != 0;
+        return (self.bits[index >> 6] & (@as(u64, 1) << @truncate(u6, index))) != 0;
     }
 
     /// Finds the index of the first set bit.
     /// If no bits are set, returns null.
     pub fn findFirstSet(self: *const ByteBitset) ?u8 {
-        if (self.bits[0] != 0) return @ctz(u64, self.bits[0]);
-        if (self.bits[1] != 0) return (1 << 6) + @ctz(u64, self.bits[1]);
-        if (self.bits[2] != 0) return (2 << 6) + @ctz(u64, self.bits[2]);
-        if (self.bits[3] != 0) return (3 << 6) + @ctz(u64, self.bits[3]);
+        if (self.bits[0] != 0) return @as(u8, @ctz(u64, self.bits[0]));
+        if (self.bits[1] != 0) return (1 << 6) + @as(u8, @ctz(u64, self.bits[1]));
+        if (self.bits[2] != 0) return (2 << 6) + @as(u8, @ctz(u64, self.bits[2]));
+        if (self.bits[3] != 0) return (3 << 6) + @as(u8, @ctz(u64, self.bits[3]));
         return null;
     }
 
     /// Finds the index of the last set bit.
     /// If no bits are set, returns null.
     pub fn findLastSet(self: *const ByteBitset) ?u8 {
-        if (self.bits[3] != 0) return (3 << 6) + @clz(u64, self.bits[3]);
-        if (self.bits[2] != 0) return (2 << 6) + @clz(u64, self.bits[2]);
-        if (self.bits[1] != 0) return (1 << 6) + @clz(u64, self.bits[1]);
-        if (self.bits[0] != 0) return @clz(u64, self.bits[0]);
+        if (self.bits[3] != 0) return (3 << 6) + @as(u8, @clz(u64, self.bits[3]));
+        if (self.bits[2] != 0) return (2 << 6) + @as(u8, @clz(u64, self.bits[2]));
+        if (self.bits[1] != 0) return (1 << 6) + @as(u8, @clz(u64, self.bits[1]));
+        if (self.bits[0] != 0) return @as(u8, @clz(u64, self.bits[0]));
         return null;
     }
 
@@ -129,10 +129,10 @@ pub const ByteBitset = packed struct {
     }
 
     pub fn bitComplement(self: *ByteBitset, in: *ByteBitset) void {
-        out[0] = ~in[0];
-        out[1] = ~in[1];
-        out[2] = ~in[2];
-        out[3] = ~in[3];
+        self.bits[0] = ~in.bits[0];
+        self.bits[1] = ~in.bits[1];
+        self.bits[2] = ~in.bits[2];
+        self.bits[3] = ~in.bits[3];
     }
 
     pub fn singleIndexIntersect(self: *ByteBitset, index: u8) void {
@@ -147,17 +147,17 @@ pub const ByteBitset = packed struct {
         const from_word_index = from_index >> 6;
         const to_word_index = to_index >> 6;
 
-        var word_position = 0;
-        while (word_position < from_word_index) : (wordPosition += 1) {
-            self.bits[word_position] = 0;
+        var word_index = 0;
+        while (word_index < from_word_index) : (word_index += 1) {
+            self.bits[word_index] = 0;
         }
 
-        self.bits[from_word_index] &= (~0) >> (from_index & 0b0111111);
-        self.bits[to_word_index] &= ~(~(1 << 63) >> (to_index & 0b00111111));
+        self.bits[from_word_index] &= (~0) >> @truncate(u8, from_index);
+        self.bits[to_word_index] &= ~(~(1 << 63) >> @truncate(u6, to_index));
 
-        var word_position = to_word_index;
-        while (word_position < 4) : (wordPosition += 1) {
-            self.bits[word_position] = 0;
+        word_index = to_word_index;
+        while (word_index < 4) : (word_index += 1) {
+            self.bits[word_index] = 0;
         }
     }
 };
