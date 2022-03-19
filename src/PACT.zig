@@ -848,7 +848,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     if (bucket_count == max_bucket_count) {
                         return self;
                     } else {
-                        std.debug.print("Grow:{}\n {} -> {} : {} -> {} \n", .{self, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body)});
+                        std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body)});
                         const allocation = try allocator.reallocAdvanced(std.mem.asBytes(self.body), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                         const new_body = @ptrCast(*GrownHead.Body, allocation);
                         std.debug.print("Growed:{*}\n", .{new_body});
@@ -1237,25 +1237,37 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 }
 
 test "create tree" {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    defer _ = general_purpose_allocator.deinit();
+    const gpa = general_purpose_allocator.allocator();
+
     const key_length = 64;
     const PACT = makePACT(key_length, usize);
-    var tree = PACT.Tree.init(std.testing.allocator);
+    var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 }
 
 test "empty tree has count 0" {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    defer _ = general_purpose_allocator.deinit();
+    const gpa = general_purpose_allocator.allocator();
+
     const key_length = 64;
     const PACT = makePACT(key_length, usize);
-    var tree = PACT.Tree.init(std.testing.allocator);
+    var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
     try expectEqual(tree.count(), 0);
 }
 
 test "single item tree has count 1" {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    defer _ = general_purpose_allocator.deinit();
+    const gpa = general_purpose_allocator.allocator();
+
     const key_length = 64;
     const PACT = makePACT(key_length, usize);
-    var tree = PACT.Tree.init(std.testing.allocator);
+    var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
     const key: [key_length]u8 = [_]u8{0} ** key_length;
@@ -1265,9 +1277,13 @@ test "single item tree has count 1" {
 }
 
 test "immutable tree fork" {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    defer _ = general_purpose_allocator.deinit();
+    const gpa = general_purpose_allocator.allocator();
+
     const key_length = 64;
     const PACT = makePACT(key_length, usize);
-    var tree = PACT.Tree.init(std.testing.allocator);
+    var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
     var new_tree = try tree.fork();
@@ -1281,13 +1297,17 @@ test "immutable tree fork" {
 }
 
 test "multi item tree has correct count" {
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    defer _ = general_purpose_allocator.deinit();
+    const gpa = general_purpose_allocator.allocator();
+
     const total_runs = 10;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
     const key_length = 64;
     const PACT = makePACT(key_length, usize);
-    var tree = PACT.Tree.init(std.testing.allocator);
+    var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
     var key: [key_length]u8 = undefined;
@@ -1314,10 +1334,11 @@ const time = std.time;
 // 8:tag = 2 | 8:infix | 48:inner ptr
 
 test "benchmark" {
-    const total_runs: usize = 10000000;
-
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
+
+    const total_runs: usize = 10000000;
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
