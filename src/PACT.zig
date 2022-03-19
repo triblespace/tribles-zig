@@ -524,6 +524,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 const GrownHead = if (bucket_count == max_bucket_count) Head else InnerNode(bucket_count << 1);
 
                 const BODY_ALIGNMENT = 64;
+                
                 const Body = extern struct {
                     leaf_count: u64,
                     segment_count: u64,
@@ -695,7 +696,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn rel(self: Head, allocator: std.mem.Allocator) void {
                     self.body.ref_count -= 1;
                     if (self.body.ref_count == 0) {
-                        defer allocator.destroy(self.body);
+                        defer allocator.free(std.mem.asBytes(self.body));
                         while (self.body.child_set.drainNext(true)) |child_byte_key| {
                             self.cuckooGet(@intCast(u8, child_byte_key)).rel(allocator);
                         }
@@ -965,7 +966,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 };
 
                 pub fn init(start_depth: u8, key: *const [key_length]u8, value: T, key_hash: Hash, allocator: std.mem.Allocator) allocError!Head {
-                    const new_body = try allocator.create(Body);
+                    const allocation = try allocator.allocAdvanced(Body, @alignOf(Body), 1, .exact);
+                    const new_body = &allocation[0];
                     new_body.* = Body{ .key_hash = key_hash, .value = value };
 
                     const key_start = (key.len - new_body.suffix.len);
@@ -995,11 +997,12 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
                     if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
                         // Reference counter exhausted, we need to make a copy of this node.
-                        const new_body = try allocator.create(Body);
-                        var new = Head{ .suffix = self.suffix, .body = new_body };
-                        new.body.* = self.body.*;
-                        new.body.ref_count = 1;
-                        return Node.from(Head, new);
+                        const allocation = try allocator.allocAdvanced(Body, @alignOf(Body), 1, .exact);
+                        const new_body = &allocation[0];
+                        new_body.* = self.body.*;
+                        new_body.ref_count = 1;
+
+                        return Node.from(Head, Head{ .suffix = self.suffix, .body = new_body });
                     } else {
                         self.body.ref_count += 1;
                         return null;
@@ -1009,7 +1012,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn rel(self: Head, allocator: std.mem.Allocator) void {
                     self.body.ref_count -= 1;
                     if (self.body.ref_count == 0) {
-                        defer allocator.destroy(self.body);
+                        defer allocator.free(std.mem.asBytes(self.body));
                     }
                 }
 
@@ -1234,6 +1237,19 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             // }
         };
     };
+}
+
+test "Alignment" {
+    const key_length = 64;
+    const PACT = makePACT(key_length, usize);
+
+    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(1), @alignOf(PACT.InnerNode(1).Body)});
+    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(2), @alignOf(PACT.InnerNode(2).Body)});
+    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(4), @alignOf(PACT.InnerNode(4).Body)});
+    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(8), @alignOf(PACT.InnerNode(8).Body)});
+    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(16), @alignOf(PACT.InnerNode(16).Body)});
+    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(32), @alignOf(PACT.InnerNode(32).Body)});
+    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(64), @alignOf(PACT.InnerNode(64).Body)});
 }
 
 test "create tree" {
