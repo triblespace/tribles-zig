@@ -524,7 +524,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 const GrownHead = if (bucket_count == max_bucket_count) Head else InnerNode(bucket_count << 1);
 
                 const BODY_ALIGNMENT = 64;
-                
+
                 const Body = extern struct {
                     leaf_count: u64,
                     segment_count: u64,
@@ -646,7 +646,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
                     try writer.print("      depth: {d} | count: {d} | segment_count: {d}\n", .{ self.branch_depth, self.body.leaf_count, self.body.segment_count });
                     try writer.print("       hash: {s}\n", .{self.body.child_sum_hash});
-                    try writer.print("  infixes: {s} > {s}\n", .{self.infix, self.body.infix});
+                    try writer.print("  infixes: {s} > {s}\n", .{ self.infix, self.body.infix });
                     try writer.print("  child_set: {s}\n", .{self.body.child_set});
                     try writer.print("   rand_hash_used: {s}\n", .{self.body.rand_hash_used});
                     try writer.print("   children: ", .{});
@@ -664,8 +664,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocWithOptions(Body, 1, BODY_ALIGNMENT, null);
-                    const new_body = @ptrCast(*Body, allocation);
+                    const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                    const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = Body{ .ref_count = 1, .leaf_count = 1, .segment_count = 1, .infix = undefined };
 
                     const body_infix_length = @minimum(branch_depth, new_body.infix.len);
@@ -823,8 +823,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocWithOptions(Body, 1, BODY_ALIGNMENT, null);
-                    const new_body = @ptrCast(*Body, allocation);
+                    const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                    const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                     new_body.* = self.body.*;
                     new_body.ref_count = 1;
@@ -849,9 +849,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     if (bucket_count == max_bucket_count) {
                         return self;
                     } else {
-                        std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body)});
-                        const allocation = try allocator.reallocAdvanced(std.mem.asBytes(self.body), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
-                        const new_body = @ptrCast(*GrownHead.Body, allocation);
+                        std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
+                        const allocation: []align(@alignOf(GrownHead.Body)) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), @alignOf(GrownHead.Body), @sizeOf(GrownHead.Body), .exact);
+                        const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
                         std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
                         return GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body };
@@ -966,8 +966,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 };
 
                 pub fn init(start_depth: u8, key: *const [key_length]u8, value: T, key_hash: Hash, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(Body, @alignOf(Body), 1, .exact);
-                    const new_body = &allocation[0];
+                    const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+                    const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = Body{ .key_hash = key_hash, .value = value };
 
                     const key_start = (key.len - new_body.suffix.len);
@@ -997,8 +997,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
                     if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
                         // Reference counter exhausted, we need to make a copy of this node.
-                        const allocation = try allocator.allocAdvanced(Body, @alignOf(Body), 1, .exact);
-                        const new_body = &allocation[0];
+                        const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+                        const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                         new_body.* = self.body.*;
                         new_body.ref_count = 1;
 
@@ -1243,17 +1243,17 @@ test "Alignment" {
     const key_length = 64;
     const PACT = makePACT(key_length, usize);
 
-    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(1), @alignOf(PACT.InnerNode(1).Body)});
-    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(2), @alignOf(PACT.InnerNode(2).Body)});
-    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(4), @alignOf(PACT.InnerNode(4).Body)});
-    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(8), @alignOf(PACT.InnerNode(8).Body)});
-    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(16), @alignOf(PACT.InnerNode(16).Body)});
-    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(32), @alignOf(PACT.InnerNode(32).Body)});
-    std.debug.print("Alignment: {} {}\n", .{PACT.InnerNode(64), @alignOf(PACT.InnerNode(64).Body)});
+    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(1), @alignOf(PACT.InnerNode(1).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(2), @alignOf(PACT.InnerNode(2).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(4), @alignOf(PACT.InnerNode(4).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(8), @alignOf(PACT.InnerNode(8).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(16), @alignOf(PACT.InnerNode(16).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(32), @alignOf(PACT.InnerNode(32).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(64), @alignOf(PACT.InnerNode(64).Body) });
 }
 
 test "create tree" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1264,7 +1264,7 @@ test "create tree" {
 }
 
 test "empty tree has count 0" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1277,7 +1277,7 @@ test "empty tree has count 0" {
 }
 
 test "single item tree has count 1" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1293,7 +1293,7 @@ test "single item tree has count 1" {
 }
 
 test "immutable tree fork" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1313,7 +1313,7 @@ test "immutable tree fork" {
 }
 
 test "multi item tree has correct count" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
