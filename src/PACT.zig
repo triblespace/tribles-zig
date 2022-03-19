@@ -872,7 +872,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         return self;
                     } else {
                         std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
-                        const allocation: []align(@alignOf(GrownHead.Body)) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), @alignOf(GrownHead.Body), @sizeOf(GrownHead.Body), .exact);
+                        const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                         const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
                         std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
