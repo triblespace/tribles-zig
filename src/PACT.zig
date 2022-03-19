@@ -540,6 +540,24 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                         slots: [SLOT_COUNT]Node = [_]Node{Node{ .tag = .none, .head = .{ .none = void{} } }} ** SLOT_COUNT,
 
+                        pub fn format(
+                            self: Bucket,
+                            comptime fmt: []const u8,
+                            options: std.fmt.FormatOptions,
+                            writer: anytype,
+                        ) !void {
+                            _ = fmt;
+                            _ = options;
+
+                            for (self.slots) |slot, i| {
+                                switch (slot.tag) {
+                                    .none => try writer.print("|_", .{}),
+                                    else => try writer.print("| {d}: {d:3}", .{ i, slot.peekFirst() }),
+                                }
+                            }
+
+                            try writer.writeAll("|");
+                        }
                         /// Retrieve the value stored, value must exist.
                         pub fn get(self: *const Bucket, byte_key: u8) Node {
                             for (self.slots) |slot| {
@@ -644,12 +662,12 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = options;
 
                     try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
-                    try writer.print("      depth: {d} | count: {d} | segment_count: {d}\n", .{ self.branch_depth, self.body.leaf_count, self.body.segment_count });
-                    try writer.print("       hash: {s}\n", .{self.body.child_sum_hash});
-                    try writer.print("  infixes: {s} > {s}\n", .{ self.infix, self.body.infix });
+                    try writer.print("  depth: {d} | count: {d} | segment_count: {d}\n", .{ self.branch_depth, self.body.leaf_count, self.body.segment_count });
+                    try writer.print("  hash: {s}\n", .{self.body.child_sum_hash});
+                    try writer.print("  infixes: {any} > {any}\n", .{ self.infix, self.body.infix });
                     try writer.print("  child_set: {s}\n", .{self.body.child_set});
-                    try writer.print("   rand_hash_used: {s}\n", .{self.body.rand_hash_used});
-                    try writer.print("   children: ", .{});
+                    try writer.print("  rand_hash_used: {s}\n", .{self.body.rand_hash_used});
+                    try writer.print("  children: ", .{});
 
                     var child_iterator = self.body.child_set;
                     while (child_iterator.drainNext(true)) |child_byte_key| {
@@ -660,7 +678,11 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         try writer.print("|{d}:{s}@{d}", .{ cast_child_byte_key, hash_name, bucket_index });
                     }
                     try writer.print("|\n", .{});
-                    try writer.print("    buckets:TODO!\n", .{});
+                    try writer.print("  buckets:!\n", .{});
+
+                    for (self.body.buckets) |bucket, i| {
+                        try writer.print("    {d}: {s}\n", .{ i, bucket });
+                    }
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
@@ -991,7 +1013,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = self;
                     _ = fmt;
                     _ = options;
-                    try writer.writeAll("LEAF! (TODO)");
+                    try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
+                    try writer.print("  value: {}\n", .{self.body.value});
+                    try writer.print("  suffixes: {any} > {any}\n", .{ self.suffix, self.body.suffix });
                 }
 
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -1253,7 +1277,7 @@ test "Alignment" {
 }
 
 test "create tree" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true, .retain_metadata = true, .safety = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1264,7 +1288,7 @@ test "create tree" {
 }
 
 test "empty tree has count 0" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true, .retain_metadata = true, .safety = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1277,7 +1301,7 @@ test "empty tree has count 0" {
 }
 
 test "single item tree has count 1" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true, .retain_metadata = true, .safety = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1313,7 +1337,7 @@ test "immutable tree fork" {
 }
 
 test "multi item tree has correct count" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true, .retain_metadata = true, .safety = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
@@ -1334,7 +1358,7 @@ test "multi item tree has correct count" {
 
         rnd.bytes(&key);
         try tree.put(&key, rnd.int(usize));
-        //std.debug.print("Inserted {d} of {d}:{any}\n{s}\n", .{i+1, total_runs, key, tree.child.?.toNode()});
+        std.debug.print("Inserted {d} of {d}:{any}\n{s}\n", .{ i + 1, total_runs, key, tree.child });
     }
     try expectEqual(tree.count(), total_runs);
 }
@@ -1350,7 +1374,7 @@ const time = std.time;
 // 8:tag = 2 | 8:infix | 48:inner ptr
 
 test "benchmark" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{.verbose_log = true}){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
