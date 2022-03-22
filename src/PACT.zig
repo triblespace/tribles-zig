@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
+const Card = @import("Card.zig").Card;
 
 const mem = std.mem;
 
@@ -540,24 +541,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                         slots: [SLOT_COUNT]Node = [_]Node{Node{ .tag = .none, .head = .{ .none = void{} } }} ** SLOT_COUNT,
 
-                        pub fn format(
-                            self: Bucket,
-                            comptime fmt: []const u8,
-                            options: std.fmt.FormatOptions,
-                            writer: anytype,
-                        ) !void {
-                            _ = fmt;
-                            _ = options;
-
-                            for (self.slots) |slot, i| {
-                                switch (slot.tag) {
-                                    .none => try writer.print("|_", .{}),
-                                    else => try writer.print("| {d}: {d:3}", .{ i, slot.peekFirst() }),
-                                }
-                            }
-
-                            try writer.writeAll("|");
-                        }
                         /// Retrieve the value stored, value must exist.
                         pub fn get(self: *const Bucket, byte_key: u8) Node {
                             for (self.slots) |slot| {
@@ -661,28 +644,130 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = fmt;
                     _ = options;
 
-                    try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
-                    try writer.print("  depth: {d} | count: {d} | segment_count: {d}\n", .{ self.branch_depth, self.body.leaf_count, self.body.segment_count });
-                    try writer.print("  hash: {s}\n", .{self.body.child_sum_hash});
-                    try writer.print("  infixes: {any} > {any}\n", .{ self.infix, self.body.infix });
-                    try writer.print("  child_set: {s}\n", .{self.body.child_set});
-                    try writer.print("  rand_hash_used: {s}\n", .{self.body.rand_hash_used});
-                    try writer.print("  children: ", .{});
+                    _ = self;
+                    var card = Card.from(
+                        \\┌────────────────────────────────────────────────────────────────────────────────┐
+                        \\│ Inner Node @󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀                                                   │
+                        \\│━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                  │
+                        \\│                                                                                │
+                        \\│ Metadata                                                                       │
+                        \\│ ═════════                                                                      │
+                        \\│                                                                                │
+                        \\│   Hash: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Leafs: 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃        │
+                        \\│   Ref#: 󰀁󰀁󰀁󰀁󰀁                            Segments: 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄        │
+                        \\│                                                                                │
+                        \\│ Infix                                                                          │
+                        \\│ ══════                                                                         │
+                        \\│         ┌─node start                                                           │
+                        \\│         ▼                                                                      │
+                        \\│   Head: 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅                                                           │
+                        \\│   Body: 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆           │
+                        \\│                                                                     ▲          │
+                        \\│                                                     branch depth=󰀇󰀇─┘          │
+                        \\│ Children                                                                       │
+                        \\│ ══════════                                                                     │
+                        \\│                                          0123456789ABCDEF    0123456789ABCDEF  │
+                        \\│  ▼                                      ┌────────────────┐  ┌────────────────┐ │
+                        \\│  ┌                  ● Seq Hash         0│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ 8│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  │󰀈                 ◆ Rand Hash        1│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ 9│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  │󰀉                 ○ Seq Missing      2│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ A│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  │󰀊󰀊                ◇ Rand Missing     3│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ B│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  │󰀋󰀋󰀋󰀋                                 4│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ C│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  │󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌                             5│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ D│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  │󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍                     6│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ E│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  │󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎     7│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ F│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
+                        \\│  └                                      └────────────────┘  └────────────────┘ │
+                        \\└────────────────────────────────────────────────────────────────────────────────┘
+                    ) catch unreachable;
 
-                    var child_iterator = self.body.child_set;
-                    while (child_iterator.drainNext(true)) |child_byte_key| {
-                        const cast_child_byte_key = @intCast(u8, child_byte_key);
-                        const use_rand_hash = self.body.rand_hash_used.isSet(cast_child_byte_key);
-                        const bucket_index = hashByteKey(use_rand_hash, bucket_count, cast_child_byte_key);
-                        const hash_name = @as([]const u8, if (use_rand_hash) "rnd" else "seq");
-                        try writer.print("|{d}:{s}@{d}", .{ cast_child_byte_key, hash_name, bucket_index });
-                    }
-                    try writer.print("|\n", .{});
-                    try writer.print("  buckets:!\n", .{});
+                    var addr_data: [16:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&addr_data, "{x:0>16}", .{@ptrToInt(self.body)}) catch unreachable;
+                    var addr = (std.unicode.Utf8View.init(&addr_data) catch unreachable).iterator();
 
-                    for (self.body.buckets) |bucket, i| {
-                        try writer.print("    {d}: {s}\n", .{ i, bucket });
+                    for(card.grid) |*row| {
+                        for(row.*) |*cell| {
+                            cell.* = switch(cell.*) {
+                                '\u{F0000}' => addr.nextCodepoint() orelse unreachable,
+                                else => cell.*
+                            };
+                        }
                     }
+
+                    try writer.print("{s}\n", .{card});
+
+                    // try writer.print(
+                    // \\┌────────────────────────────────────────────────────────────────────────────────┐
+                    // \\│ Inner Node @{}                                                   │
+                    // \\│━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                  │
+                    // \\│                                                                                │
+                    // \\│ Metadata                                                                       │
+                    // \\│ ═════════                                                                      │
+                    // \\│   Hash: {[hash]s:0>32}    Leafs: {[leaf_count]d:0>20}        │
+                    // \\│   Ref#: {[ref_count]d:0>5}                            Segments: {[segment_count]d:0>20}        │
+                    // \\│                                                                                │
+                    // \\│ Infix                                                                          │
+                    // \\│ ══════                                                                         │
+                    // \\│         ┌─node start (see parent)                                              │
+                    // \\│         ▼                                                                      │
+                    // \\│   Head: {[head_infix]s}                                                           │
+                    // \\│   Body: {[body_infix]s               }           │
+                    // \\│                                                                     ▲          │
+                    // \\│                                                     branch depth={[branch_depth]d:0>2}─┘          │
+                    // \\│                                                                                │
+                    // \\│ Children                                                                       │
+                    // \\│ ══════════                                                                     │
+                    // \\│  Bucket count: {[size]d:0>2}                        ● Seq Hash  ◆ Rand Hash  ○/◇ Missing  │
+                    // \\│                                                                                │
+                    // \\│                                           0123456789ABCDEF    0123456789ABCDEF │
+                    // \\│ ▶ ALL                                    0{children0:16}   8{children8:16} │
+                    // \\│   █                                      1{children1:16}   9{children9:16} │
+                    // \\│   {[buckets2]s}                                      2{children2:16}   A{childrenA:16} │
+                    // \\│   {[buckets4]s}                                     3{children3:16}   B{childrenB:16} │
+                    // \\│   {[buckets8]s}                                   4{children4:16}   C{childrenC:16} │
+                    // \\│   {[buckets16]s}                               5{children5:16}   D{childrenD:16} │
+                    // \\│   {[buckets32]s}                       6{children6:16}   E{childrenE:16} │
+                    // \\│   {[buckets64]s}       7{children7:16}   F{childrenF:16} │
+                    // \\└────────────────────────────────────────────────────────────────────────────────┘
+                    // , .{.body_ptr=,
+                    //     .hash=std.fmt.fmtSliceHexUpper(&self.body.child_sum_hash.data),
+                    //     .ref_count=self.body.ref_count,
+                    //     .leaf_count=self.body.leaf_count,
+                    //     .segment_count=self.body.segment_count,
+                    //     .branch_depth=self.branch_depth,
+                    //     .head_infix=std.fmt.fmtSliceHexUpper(&self.infix),
+                    //     .body_infix=std.fmt.fmtSliceHexUpper(&self.body.infix),
+                    //     .size=bucket_count,
+                    //     .buckets2= if(bucket_count >= 2)  "█" else "░",
+                    //     .buckets4= if(bucket_count >= 4)  "██" else "░░",
+                    //     .buckets8= if(bucket_count >= 8)  "████" else "░░░░",
+                    //     .buckets16=if(bucket_count >= 16) "████████" else "░░░░░░░░",
+                    //     .buckets32=if(bucket_count >= 32) "████████████████" else "░░░░░░░░░░░░░░░░",
+                    //     .buckets64=if(bucket_count >= 64) "████████████████████████████████" else "░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░"},
+                    //     .children0=, .children1=, .children2=, .children3=, .children4=, .children5=, .children6=, .children7=,
+                    //     .children8=, .children9=, .childrenA=, .childrenB=, .childrenC=, .childrenD=, .childrenE=, .childrenF=,
+                    // );
+                    // var child_iterator = self.body.child_set;
+                    // while (child_iterator.drainNext(true)) |child_byte_key| {
+                    //     const cast_child_byte_key = @intCast(u8, child_byte_key);
+                    //     const use_rand_hash = self.body.rand_hash_used.isSet(cast_child_byte_key);
+                    //     const bucket_index = hashByteKey(use_rand_hash, bucket_count, cast_child_byte_key);
+                    //     const hash_name = @as([]const u8, if (use_rand_hash) "rnd" else "seq");
+                    //     try writer.print("|{d}:{s}@{d}", .{ cast_child_byte_key, hash_name, bucket_index });
+                    // }
+                    // try writer.print("|\n", .{});
+                    // try writer.print("  buckets:!\n", .{});
+
+                    // for (self.body.buckets) |bucket| {
+                    //         for (bucket.slots) |slot, i| {
+                    //             switch (slot.tag) {
+                    //                 .none => try writer.print("|_", .{}),
+                    //                 else => try writer.print("| {d}: {d:3}", .{ i, slot.peekFirst() }),
+                    //             }
+                    //         }
+                    //         try writer.print("|", .{});
+                    // }
+                    
+                    try writer.writeAll("");
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
@@ -1358,7 +1443,7 @@ test "multi item tree has correct count" {
 
         rnd.bytes(&key);
         try tree.put(&key, rnd.int(usize));
-        std.debug.print("Inserted {d} of {d}:{any}\n{s}\n", .{ i + 1, total_runs, key, tree.child });
+        std.debug.print("Inserted {d} of {d}:{s}\n{s}\n", .{ i + 1, total_runs, std.fmt.fmtSliceHexUpper(&key), tree.child });
     }
     try expectEqual(tree.count(), total_runs);
 }
