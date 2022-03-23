@@ -653,8 +653,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         \\│ Metadata                                                                       │
                         \\│ ═════════                                                                      │
                         \\│                                                                                │
-                        \\│   Hash: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Leafs: 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃        │
-                        \\│   Ref#: 󰀁󰀁󰀁󰀁󰀁                            Segments: 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄        │
+                        \\│   Hash: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Leafs: 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂        │
+                        \\│   Ref#: 󰀃󰀃󰀃󰀃󰀃                            Segments: 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄        │
                         \\│                                                                                │
                         \\│ Infix                                                                          │
                         \\│ ══════                                                                         │
@@ -682,12 +682,56 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                     var addr_data: [16:0]u8 = undefined;
                     _ = std.fmt.bufPrint(&addr_data, "{x:0>16}", .{@ptrToInt(self.body)}) catch unreachable;
-                    var addr = (std.unicode.Utf8View.init(&addr_data) catch unreachable).iterator();
+                    var addr_iter = (std.unicode.Utf8View.init(&addr_data) catch unreachable).iterator();
+
+                    var hash_data: [32:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&hash_data, "{s:0>32}", .{std.fmt.fmtSliceHexUpper(&self.body.child_sum_hash.data)}) catch unreachable;
+                    var hash_iter = (std.unicode.Utf8View.init(&hash_data) catch unreachable).iterator();
+
+                    var leaf_count_data: [20:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&leaf_count_data, "{d:0>20}", .{self.body.leaf_count}) catch unreachable;
+                    var leaf_count_iter = (std.unicode.Utf8View.init(&leaf_count_data) catch unreachable).iterator();
+
+                    var ref_count_data: [5:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&ref_count_data, "{d:0>5}", .{self.body.ref_count}) catch unreachable;
+                    var ref_count_iter = (std.unicode.Utf8View.init(&ref_count_data) catch unreachable).iterator();
+
+                    var segment_count_data: [20:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&segment_count_data, "{d:0>20}", .{self.body.segment_count}) catch unreachable;
+                    var segment_count_iter = (std.unicode.Utf8View.init(&segment_count_data) catch unreachable).iterator();
+
+                    var head_infix_data: [12:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&head_infix_data, "{s:0>12}", .{std.fmt.fmtSliceHexUpper(&self.infix)}) catch unreachable;
+                    var head_infix_iter = (std.unicode.Utf8View.init(&head_infix_data) catch unreachable).iterator();
+
+                    var body_infix_data: [60:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&body_infix_data, "{s:0>60}", .{std.fmt.fmtSliceHexUpper(&self.body.infix)}) catch unreachable;
+                    var body_infix_iter = (std.unicode.Utf8View.init(&body_infix_data) catch unreachable).iterator();
+
+                    var branch_depth_data: [2:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&branch_depth_data, "{d:0>2}", .{self.branch_depth}) catch unreachable;
+                    var branch_depth_iter = (std.unicode.Utf8View.init(&branch_depth_data) catch unreachable).iterator();
 
                     for(card.grid) |*row| {
                         for(row.*) |*cell| {
                             cell.* = switch(cell.*) {
-                                '\u{F0000}' => addr.nextCodepoint() orelse unreachable,
+                                '\u{F0000}' => addr_iter.nextCodepoint().?,
+                                '\u{F0001}' => hash_iter.nextCodepoint().?,
+                                '\u{F0002}' => leaf_count_iter.nextCodepoint() orelse unreachable,
+                                '\u{F0003}' => ref_count_iter.nextCodepoint() orelse unreachable,
+                                '\u{F0004}' => segment_count_iter.nextCodepoint() orelse unreachable,
+                                '\u{F0005}' => head_infix_iter.nextCodepoint() orelse unreachable,
+                                '\u{F0006}' => body_infix_iter.nextCodepoint() orelse unreachable,
+                                '\u{F0007}' => branch_depth_iter.nextCodepoint() orelse unreachable,
+                                '\u{F0008}' => if(bucket_count >= 1) '█' else '░',
+                                '\u{F0009}' => if(bucket_count >= 2) '█' else '░',
+                                '\u{F000A}' => if(bucket_count >= 4) '█' else '░',
+                                '\u{F000B}' => if(bucket_count >= 8) '█' else '░',
+                                '\u{F000C}' => if(bucket_count >= 16) '█' else '░',
+                                '\u{F000D}' => if(bucket_count >= 32) '█' else '░',
+                                '\u{F000E}' => if(bucket_count >= 64) '█' else '░',
+                                '\u{F000F}' => '●', //TODO
+                                '\u{F0010}' => '◆', //TODO
                                 else => cell.*
                             };
                         }
@@ -729,7 +773,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     // \\│   {[buckets64]s}       7{children7:16}   F{childrenF:16} │
                     // \\└────────────────────────────────────────────────────────────────────────────────┘
                     // , .{.body_ptr=,
-                    //     .hash=std.fmt.fmtSliceHexUpper(&self.body.child_sum_hash.data),
+                    //     .hash=
                     //     .ref_count=self.body.ref_count,
                     //     .leaf_count=self.body.leaf_count,
                     //     .segment_count=self.body.segment_count,
