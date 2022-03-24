@@ -1,5 +1,9 @@
 const std = @import("std");
 
+pub const Position = struct {
+    x: u8,
+    y: u8,
+};
 
 pub const Card = struct {
     pub const width = 80;
@@ -67,5 +71,14 @@ pub const Card = struct {
         }
 
         return card;
+    }
+
+    pub fn findTopLeft(self: *const Card, char: u21) ?Position {
+        for(self.grid) |row, y| {
+            for(row) |symbol, x| {
+                if(symbol == char) return Position{.x=@intCast(u8, x), .y=@intCast(u8, y)};
+            }
+        }
+        return null;
     }
 };
