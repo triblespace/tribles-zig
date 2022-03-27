@@ -185,6 +185,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             inner8,
             inner16,
             inner32,
+            inner64,
             leaf8,
             leaf16,
             leaf24,
@@ -207,6 +208,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 inner8: InnerNode(8),
                 inner16: InnerNode(16),
                 inner32: InnerNode(32),
+                inner64: InnerNode(64),
                 leaf8: LeafNode(8),
                 leaf16: LeafNode(16),
                 leaf24: LeafNode(24),
@@ -225,6 +227,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     8 => NodeTag.inner8,
                     16 => NodeTag.inner16,
                     32 => NodeTag.inner32,
+                    64 => NodeTag.inner64,
                     else => @panic("Bad bucket count for tag."),
                 };
             }
@@ -246,6 +249,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => try writer.print("{s}", .{self.head.inner8}),
                     .inner16 => try writer.print("{s}", .{self.head.inner16}),
                     .inner32 => try writer.print("{s}", .{self.head.inner32}),
+                    .inner64 => try writer.print("{s}", .{self.head.inner64}),
                     .leaf8 => try writer.print("{s}", .{self.head.leaf8}),
                     .leaf16 => try writer.print("{s}", .{self.head.leaf16}),
                     .leaf24 => try writer.print("{s}", .{self.head.leaf24}),
@@ -266,6 +270,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     InnerNode(8) => Node{ .tag = .inner8, .head = .{ .inner8 = variant } },
                     InnerNode(16) => Node{ .tag = .inner16, .head = .{ .inner16 = variant } },
                     InnerNode(32) => Node{ .tag = .inner32, .head = .{ .inner32 = variant } },
+                    InnerNode(64) => Node{ .tag = .inner64, .head = .{ .inner64 = variant } },
                     LeafNode(8) => Node{ .tag = .leaf8, .head = .{ .leaf8 = variant } },
                     LeafNode(16) => Node{ .tag = .leaf16, .head = .{ .leaf16 = variant } },
                     LeafNode(24) => Node{ .tag = .leaf24, .head = .{ .leaf24 = variant } },
@@ -274,7 +279,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     LeafNode(48) => Node{ .tag = .leaf48, .head = .{ .leaf48 = variant } },
                     LeafNode(56) => Node{ .tag = .leaf56, .head = .{ .leaf56 = variant } },
                     LeafNode(64) => Node{ .tag = .leaf64, .head = .{ .leaf64 = variant } },
-                    else => @panic("Can't create node from provided type."),
+                    else => std.debug.panic("Can't create node from provided type: {}", .{variantType}),
                 };
             }
 
@@ -287,6 +292,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.ref(allocator),
                     .inner16 => self.head.inner16.ref(allocator),
                     .inner32 => self.head.inner32.ref(allocator),
+                    .inner64 => self.head.inner64.ref(allocator),
                     .leaf8 => self.head.leaf8.ref(allocator),
                     .leaf16 => self.head.leaf16.ref(allocator),
                     .leaf24 => self.head.leaf24.ref(allocator),
@@ -307,6 +313,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.rel(allocator),
                     .inner16 => self.head.inner16.rel(allocator),
                     .inner32 => self.head.inner32.rel(allocator),
+                    .inner64 => self.head.inner64.rel(allocator),
                     .leaf8 => self.head.leaf8.rel(allocator),
                     .leaf16 => self.head.leaf16.rel(allocator),
                     .leaf24 => self.head.leaf24.rel(allocator),
@@ -327,6 +334,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.count(),
                     .inner16 => self.head.inner16.count(),
                     .inner32 => self.head.inner32.count(),
+                    .inner64 => self.head.inner64.count(),
                     .leaf8 => self.head.leaf8.count(),
                     .leaf16 => self.head.leaf16.count(),
                     .leaf24 => self.head.leaf24.count(),
@@ -347,6 +355,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.hash(),
                     .inner16 => self.head.inner16.hash(),
                     .inner32 => self.head.inner32.hash(),
+                    .inner64 => self.head.inner64.hash(),
                     .leaf8 => self.head.leaf8.hash(),
                     .leaf16 => self.head.leaf16.hash(),
                     .leaf24 => self.head.leaf24.hash(),
@@ -367,6 +376,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.depth(),
                     .inner16 => self.head.inner16.depth(),
                     .inner32 => self.head.inner32.depth(),
+                    .inner64 => self.head.inner64.depth(),
                     .leaf8 => self.head.leaf8.depth(),
                     .leaf16 => self.head.leaf16.depth(),
                     .leaf24 => self.head.leaf24.depth(),
@@ -387,6 +397,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.peekFirst(),
                     .inner16 => self.head.inner16.peekFirst(),
                     .inner32 => self.head.inner32.peekFirst(),
+                    .inner64 => self.head.inner64.peekFirst(),
                     .leaf8 => self.head.leaf8.peekFirst(),
                     .leaf16 => self.head.leaf16.peekFirst(),
                     .leaf24 => self.head.leaf24.peekFirst(),
@@ -407,6 +418,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.peek(start_depth, at_depth),
                     .inner16 => self.head.inner16.peek(start_depth, at_depth),
                     .inner32 => self.head.inner32.peek(start_depth, at_depth),
+                    .inner64 => self.head.inner64.peek(start_depth, at_depth),
                     .leaf8 => self.head.leaf8.peek(start_depth, at_depth),
                     .leaf16 => self.head.leaf16.peek(start_depth, at_depth),
                     .leaf24 => self.head.leaf24.peek(start_depth, at_depth),
@@ -427,6 +439,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.propose(start_depth, at_depth, result_set),
                     .inner16 => self.head.inner16.propose(start_depth, at_depth, result_set),
                     .inner32 => self.head.inner32.propose(start_depth, at_depth, result_set),
+                    .inner64 => self.head.inner64.propose(start_depth, at_depth, result_set),
                     .leaf8 => self.head.leaf8.propose(start_depth, at_depth, result_set),
                     .leaf16 => self.head.leaf16.propose(start_depth, at_depth, result_set),
                     .leaf24 => self.head.leaf24.propose(start_depth, at_depth, result_set),
@@ -447,6 +460,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.get(start_depth, at_depth, byte_key),
                     .inner16 => self.head.inner16.get(start_depth, at_depth, byte_key),
                     .inner32 => self.head.inner32.get(start_depth, at_depth, byte_key),
+                    .inner64 => self.head.inner64.get(start_depth, at_depth, byte_key),
                     .leaf8 => self.head.leaf8.get(start_depth, at_depth, byte_key),
                     .leaf16 => self.head.leaf16.get(start_depth, at_depth, byte_key),
                     .leaf24 => self.head.leaf24.get(start_depth, at_depth, byte_key),
@@ -467,6 +481,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     .inner8 => self.head.inner8.put(start_depth, key, value, single_owner, allocator),
                     .inner16 => self.head.inner16.put(start_depth, key, value, single_owner, allocator),
                     .inner32 => self.head.inner32.put(start_depth, key, value, single_owner, allocator),
+                    .inner64 => self.head.inner64.put(start_depth, key, value, single_owner, allocator),
                     .leaf8 => self.head.leaf8.put(start_depth, key, value, single_owner, allocator),
                     .leaf16 => self.head.leaf16.put(start_depth, key, value, single_owner, allocator),
                     .leaf24 => self.head.leaf24.put(start_depth, key, value, single_owner, allocator),
@@ -764,28 +779,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     }
 
                     try writer.print("{s}\n", .{card});
-
-                    // var child_iterator = self.body.child_set;
-                    // while (child_iterator.drainNext(true)) |child_byte_key| {
-                    //     const cast_child_byte_key = @intCast(u8, child_byte_key);
-                    //     const use_rand_hash = self.body.rand_hash_used.isSet(cast_child_byte_key);
-                    //     const bucket_index = hashByteKey(use_rand_hash, bucket_count, cast_child_byte_key);
-                    //     const hash_name = @as([]const u8, if (use_rand_hash) "rnd" else "seq");
-                    //     try writer.print("|{d}:{s}@{d}", .{ cast_child_byte_key, hash_name, bucket_index });
-                    // }
-                    // try writer.print("|\n", .{});
-                    // try writer.print("  buckets:!\n", .{});
-
-                    // for (self.body.buckets) |bucket| {
-                    //         for (bucket.slots) |slot, i| {
-                    //             switch (slot.tag) {
-                    //                 .none => try writer.print("|_", .{}),
-                    //                 else => try writer.print("| {d}: {d:3}", .{ i, slot.peekFirst() }),
-                    //             }
-                    //         }
-                    //         try writer.print("|", .{});
-                    // }
-                    
                     try writer.writeAll("");
                 }
 
@@ -823,7 +816,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     self.body.ref_count -= 1;
                     if (self.body.ref_count == 0) {
                         defer allocator.free(std.mem.asBytes(self.body));
-                        while (self.body.child_set.drainNext(true)) |child_byte_key| {
+                        var child_iterator = self.body.child_set;
+                        while (child_iterator.drainNext(true)) |child_byte_key| {
                             self.cuckooGet(@intCast(u8, child_byte_key)).rel(allocator);
                         }
                     }
@@ -975,10 +969,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     if (bucket_count == max_bucket_count) {
                         return self;
                     } else {
-                        std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
+                        //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
                         const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                         const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
-                        std.debug.print("Growed:{*}\n", .{new_body});
+                        //std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
                         return GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body };
                     }
@@ -986,41 +980,37 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 fn cuckooPut(self: Head, node: Node, allocator: std.mem.Allocator) allocError!Node {
                     var byte_key = node.peekFirst();
-                    if (self.body.child_set.isSet(byte_key)) {
-                        const index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-                        self.body.buckets[index].update(node);
-                        return Node.from(Head, self);
-                    } else {
-                        const growable = (bucket_count != max_bucket_count);
-                        const base_size = (bucket_count == 1);
-                        var use_rand_hash = false;
-                        var entry = node;
-                        var attempts: u8 = 0;
-                        while (true) {
-                            random = rand_lut[random ^ byte_key];
-                            const bucket_index = hashByteKey(use_rand_hash, bucket_count, byte_key);
+                    self.body.child_set.set(byte_key);
 
-                            self.body.child_set.set(byte_key);
+                    const growable = (bucket_count != max_bucket_count);
+                    const base_size = (bucket_count == 1);
+                    var use_rand_hash = false;
+                    var entry = node;
+                    var attempts: u8 = 0;
+                    while (true) {
+                        random = rand_lut[random ^ byte_key];
+                        const bucket_index = hashByteKey(use_rand_hash, bucket_count, byte_key);
+
+                        if (self.body.buckets[bucket_index].put(&self.body.rand_hash_used, bucket_count, bucket_index, entry)) {
                             self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
+                            return Node.from(Head, self);
+                        }
 
-                            if (self.body.buckets[bucket_index].put(&self.body.rand_hash_used, bucket_count, bucket_index, entry)) {
-                                return Node.from(Head, self);
-                            }
+                        if (base_size or attempts == MAX_ATTEMPTS) {
+                            const grown = try self.grow(allocator);
+                            return grown.cuckooPut(entry, allocator);
+                        }
 
-                            if (base_size or attempts == MAX_ATTEMPTS) {
-                                const grown = try self.grow(allocator);
-                                return grown.cuckooPut(entry, allocator);
-                            }
-
-                            if (growable) {
-                                attempts += 1;
-                                entry = self.body.buckets[bucket_index].displaceRandomly(random, entry);
-                                byte_key = entry.peekFirst();
-                                use_rand_hash = !self.body.rand_hash_used.isSet(byte_key);
-                            } else {
-                                entry = self.body.buckets[bucket_index].displaceRandHashOnly(&self.body.rand_hash_used, entry);
-                                use_rand_hash = false;
-                            }
+                        if (growable) {
+                            attempts += 1;
+                            entry = self.body.buckets[bucket_index].displaceRandomly(random, entry);
+                            self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
+                            byte_key = entry.peekFirst();
+                            use_rand_hash = !self.body.rand_hash_used.isSet(byte_key);
+                        } else {
+                            entry = self.body.buckets[bucket_index].displaceRandHashOnly(&self.body.rand_hash_used, entry);
+                            self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
+                            byte_key = entry.peekFirst();
                         }
                     }
                     unreachable;
@@ -1040,7 +1030,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 fn cuckooUpdate(self: Head, node: Node) void {
                     const byte_key = node.peekFirst();
                     const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-                    return self.body.buckets[bucket_index].update(node);
+                    self.body.buckets[bucket_index].update(node);
                 }
             };
         }
@@ -1477,12 +1467,12 @@ const time = std.time;
 // 8:tag = 1 | 8:infix | 48:leaf ptr
 // 8:tag = 2 | 8:infix | 48:inner ptr
 
+const benchmark_size: usize = 1000;
+
 test "benchmark" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{ .verbose_log = true }){};
+    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
-
-    const total_runs: usize = 10000000;
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
@@ -1497,7 +1487,7 @@ test "benchmark" {
     var key: [key_length]u8 = undefined;
 
     var i: u64 = 0;
-    while (i < total_runs) : (i += 1) {
+    while (i < benchmark_size) : (i += 1) {
         rnd.bytes(&key);
         const value = rnd.int(usize);
 
@@ -1508,12 +1498,10 @@ test "benchmark" {
         t_total += timer.lap();
     }
 
-    std.debug.print("Inserted {d} in {d}ns\n", .{ total_runs, t_total });
+    std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
 }
 
 test "benchmark std" {
-    const total_runs: usize = 100000;
-
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
     const gpa = general_purpose_allocator.allocator();
 
@@ -1530,7 +1518,7 @@ test "benchmark std" {
     defer map.deinit();
 
     var i: u64 = 0;
-    while (i < total_runs) : (i += 1) {
+    while (i < benchmark_size) : (i += 1) {
         rnd.bytes(&key);
         const value = rnd.int(usize);
 
@@ -1541,5 +1529,5 @@ test "benchmark std" {
         t_total += timer.lap();
     }
 
-    std.debug.print("Inserted {d} in {d}ns\n", .{ total_runs, t_total });
+    std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
 }
