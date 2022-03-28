@@ -840,9 +840,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     const lower_childset_pos = card.findTopLeft('\u{F000F}').?;
                     const upper_childset_pos = card.findTopLeft('\u{F0010}').?;
 
-                    for(card.grid) |*row, y| {
-                        for(row.*) |*cell, x| {
-                            cell.* = switch(cell.*) {
+                    for (card.grid) |*row, y| {
+                        for (row.*) |*cell, x| {
+                            cell.* = switch (cell.*) {
                                 '\u{F0000}' => addr_iter.nextCodepoint().?,
                                 '\u{F0001}' => hash_iter.nextCodepoint().?,
                                 '\u{F0002}' => leaf_count_iter.nextCodepoint() orelse unreachable,
@@ -851,28 +851,28 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                                 '\u{F0005}' => head_infix_iter.nextCodepoint() orelse unreachable,
                                 '\u{F0006}' => body_infix_iter.nextCodepoint() orelse unreachable,
                                 '\u{F0007}' => branch_depth_iter.nextCodepoint() orelse unreachable,
-                                '\u{F0008}' => if(bucket_count >= 1) '█' else '░',
-                                '\u{F0009}' => if(bucket_count >= 2) '█' else '░',
-                                '\u{F000A}' => if(bucket_count >= 4) '█' else '░',
-                                '\u{F000B}' => if(bucket_count >= 8) '█' else '░',
-                                '\u{F000C}' => if(bucket_count >= 16) '█' else '░',
-                                '\u{F000D}' => if(bucket_count >= 32) '█' else '░',
-                                '\u{F000E}' => if(bucket_count >= 64) '█' else '░',
+                                '\u{F0008}' => if (bucket_count >= 1) '█' else '░',
+                                '\u{F0009}' => if (bucket_count >= 2) '█' else '░',
+                                '\u{F000A}' => if (bucket_count >= 4) '█' else '░',
+                                '\u{F000B}' => if (bucket_count >= 8) '█' else '░',
+                                '\u{F000C}' => if (bucket_count >= 16) '█' else '░',
+                                '\u{F000D}' => if (bucket_count >= 32) '█' else '░',
+                                '\u{F000E}' => if (bucket_count >= 64) '█' else '░',
                                 '\u{F000F}' => blk: {
                                     const lx: u8 = @intCast(u8, x) - lower_childset_pos.x;
                                     const ly: u8 = @intCast(u8, y) - lower_childset_pos.y;
                                     const byte_key: u8 = @as(u8, lx + (ly * 16));
 
-                                    if(!self.body.child_set.isSet(byte_key)) break :blk ' ';
+                                    if (!self.body.child_set.isSet(byte_key)) break :blk ' ';
 
                                     var s: u21 = undefined;
                                     const rand_hash_used = self.body.rand_hash_used.isSet(byte_key);
-                                     
+
                                     const bucket_index = hashByteKey(rand_hash_used, bucket_count, byte_key);
-                                    if(self.body.buckets[bucket_index].get(byte_key)) |_| {
-                                        s = if(rand_hash_used) '◆' else '●';
+                                    if (self.body.buckets[bucket_index].get(byte_key)) |_| {
+                                        s = if (rand_hash_used) '◆' else '●';
                                     } else {
-                                        s = if(rand_hash_used) '◇' else '○';
+                                        s = if (rand_hash_used) '◇' else '○';
                                     }
 
                                     break :blk s;
@@ -881,11 +881,11 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                                     const lx: u8 = @intCast(u8, x) - upper_childset_pos.x;
                                     const ly: u8 = @intCast(u8, y) - upper_childset_pos.y;
                                     const byte: u8 = @as(u8, 128 + lx + (ly * 16));
-                                    if(!self.body.child_set.isSet(byte)) break :blk ' ';
-                                    const s: u21 = if(self.body.rand_hash_used.isSet(byte)) '◆' else '●';
+                                    if (!self.body.child_set.isSet(byte)) break :blk ' ';
+                                    const s: u21 = if (self.body.rand_hash_used.isSet(byte)) '◆' else '●';
                                     break :blk s;
                                 },
-                                else => cell.*
+                                else => cell.*,
                             };
                         }
                     }
@@ -1152,7 +1152,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
         fn InitLeafNode(start_depth: u8, key: *const [key_length]u8, opt_value: ?T, allocator: std.mem.Allocator) allocError!Node {
             const suffix_lenth = key_length - start_depth;
-            if(opt_value) |value| {
+            if (opt_value) |value| {
                 if (suffix_lenth <= 8) {
                     return Node.from(LeafNode(false, 8), try LeafNode(false, 8).init(start_depth, key, value, allocator));
                 }
@@ -1206,7 +1206,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
             unreachable;
         }
-        
+
         const InlineLeafNode = extern struct {
             const head_suffix_len = 15;
 
@@ -1215,7 +1215,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
             const Head = @This();
 
-            pub fn init(start_depth: u8, key: *const [key_length]u8) allocError!Head {                
+            pub fn init(start_depth: u8, key: *const [key_length]u8) allocError!Head {
                 var new_head = Head{};
 
                 const head_suffix_length = @minimum(key.len - start_depth, new_head.suffix.len);
@@ -1234,7 +1234,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 _ = self;
                 _ = fmt;
                 _ = options;
-                try writer.print("Inline suffix: {any}\n", .{ self.suffix } );
+                try writer.print("Inline suffix: {any}\n", .{self.suffix});
             }
 
             pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -1327,7 +1327,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 suffix: [head_suffix_len]u8 = [_]u8{0} ** head_suffix_len,
 
                 const Head = @This();
-                const Body = if(no_value) extern struct {
+                const Body = if (no_value) extern struct {
                     ref_count: u16 = 1,
                     suffix: [body_suffix_len]u8 = undefined,
                 } else extern struct {
@@ -1336,16 +1336,15 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     suffix: [body_suffix_len]u8 = undefined,
                 };
 
-                pub fn init(start_depth: u8, key: *const [key_length]u8, value: if(no_value) void else T, allocator: std.mem.Allocator) allocError!Head {
+                pub fn init(start_depth: u8, key: *const [key_length]u8, value: if (no_value) void else T, allocator: std.mem.Allocator) allocError!Head {
                     const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
-                    if(no_value) {
+                    if (no_value) {
                         new_body.* = Body{};
                     } else {
                         new_body.* = Body{ .value = value };
                     }
-                    
 
                     const key_start = (key.len - new_body.suffix.len);
                     mem.copy(u8, new_body.suffix[0..new_body.suffix.len], key[key_start..key.len]);
@@ -1369,7 +1368,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = fmt;
                     _ = options;
                     try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
-                    if(no_value) {
+                    if (no_value) {
                         try writer.print("  value: null\n", .{});
                     } else {
                         try writer.print("  value: {}\n", .{self.body.value});
@@ -1755,7 +1754,7 @@ test "benchmark" {
 
     var key: [key_length]u8 = undefined;
 
-    std.debug.print("Inserting {d} elements into PACT.\n", .{ benchmark_size });
+    std.debug.print("Inserting {d} elements into PACT.\n", .{benchmark_size});
 
     var i: u64 = 0;
     while (i < benchmark_size) : (i += 1) {
@@ -1782,7 +1781,7 @@ test "benchmark hashing" {
 
     var key: [key_length]u8 = undefined;
 
-    std.debug.print("Hashing {d} elements.\n", .{ benchmark_size });
+    std.debug.print("Hashing {d} elements.\n", .{benchmark_size});
 
     var i: u64 = 0;
     while (i < benchmark_size) : (i += 1) {
@@ -1814,7 +1813,7 @@ test "benchmark std" {
     var map = std.hash_map.AutoHashMap([key_length]u8, usize).init(gpa);
     defer map.deinit();
 
-    std.debug.print("Inserting {d} elements into AutoHashMap.\n", .{ benchmark_size });
+    std.debug.print("Inserting {d} elements into AutoHashMap.\n", .{benchmark_size});
 
     var i: u64 = 0;
     while (i < benchmark_size) : (i += 1) {
