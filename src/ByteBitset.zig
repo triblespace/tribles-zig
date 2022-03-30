@@ -1,7 +1,7 @@
 const std = @import("std");
 const assert = std.debug.assert;
 
-pub const ByteBitset = packed struct {
+pub const ByteBitset = extern struct {
     bits: [4]u64 = .{ 0, 0, 0, 0 },
 
     pub fn initEmpty() ByteBitset {
@@ -64,10 +64,10 @@ pub const ByteBitset = packed struct {
     /// Finds the index of the last set bit.
     /// If no bits are set, returns null.
     pub fn findLastSet(self: *const ByteBitset) ?u8 {
-        if (self.bits[3] != 0) return (3 << 6) + @as(u8, @clz(u64, self.bits[3]));
-        if (self.bits[2] != 0) return (2 << 6) + @as(u8, @clz(u64, self.bits[2]));
-        if (self.bits[1] != 0) return (1 << 6) + @as(u8, @clz(u64, self.bits[1]));
-        if (self.bits[0] != 0) return @as(u8, @clz(u64, self.bits[0]));
+        if (self.bits[3] != 0) return (1 << 6) + (63 - @as(u8, @clz(u64, self.bits[3])));
+        if (self.bits[2] != 0) return (2 << 6) + (63 - @as(u8, @clz(u64, self.bits[2])));
+        if (self.bits[1] != 0) return (3 << 6) + (63 - @as(u8, @clz(u64, self.bits[1])));
+        if (self.bits[0] != 0) return (63 - @as(u8, @clz(u64, self.bits[0])));
         return null;
     }
 
@@ -135,9 +135,9 @@ pub const ByteBitset = packed struct {
         self.bits[3] = ~in.bits[3];
     }
 
-    pub fn singleIndexIntersect(self: *ByteBitset, index: u8) void {
+    pub fn singleIntersect(self: *ByteBitset, index: u8) void {
         const had_bit = self.isSet(index);
-        self.unsetAllBit();
+        self.unsetAll();
         if (had_bit) {
             self.set(index);
         }
