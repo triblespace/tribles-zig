@@ -963,16 +963,16 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
-                    if(at_depth == self.branch_depth) {
+                    if (at_depth == self.branch_depth) {
                         result_set.setIntersect(result_set, &self.body.child_set);
                         return;
                     }
 
-                    if(self.peek(start_depth, at_depth)) |byte_key| {
+                    if (self.peek(start_depth, at_depth)) |byte_key| {
                         result_set.singleIntersect(byte_key);
                         return;
                     }
-                    
+
                     result_set.unsetAll();
                 }
 
@@ -1286,11 +1286,11 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             }
 
             pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
-                if(self.peek(start_depth, at_depth)) |byte_key| {
+                if (self.peek(start_depth, at_depth)) |byte_key| {
                     result_set.singleIntersect(byte_key);
                     return;
                 }
-                
+
                 result_set.unsetAll();
             }
 
@@ -1440,11 +1440,11 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
-                    if(self.peek(start_depth, at_depth)) |byte_key| {
+                    if (self.peek(start_depth, at_depth)) |byte_key| {
                         result_set.singleIntersect(byte_key);
                         return;
                     }
-                    
+
                     result_set.unsetAll();
                 }
 
@@ -1494,26 +1494,26 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 start_points: ByteBitset = ByteBitset.initEmpty(),
                 path: [key_length]Node = [_]Node{Node.none} ** key_length,
                 key: [key_length]u8 = [_]u8{0} ** key_length,
-                branch_state: [key_length]ByteBitset = [_]ByteBitset{ByteBitset.initEmpty()}**key_length,
+                branch_state: [key_length]ByteBitset = [_]ByteBitset{ByteBitset.initEmpty()} ** key_length,
 
                 const IterationResult = struct {
                     node: Node,
                     start_depth: u8,
                     key: [key_length]u8,
                 };
-                
+
                 fn next(self: *NodeIterator) ?IterationResult {
                     var start_depth = self.start_points.findLastSet() orelse return null;
                     var node = self.path[start_depth];
-                    
+
                     var branch_depth = start_depth;
                     infix: while (branch_depth < key_length) : (branch_depth += 1) {
                         self.key[branch_depth] = node.peek(start_depth, branch_depth) orelse break :infix;
                     } else {
                         var exhausted_depth = self.start_points.drainNext(false).?;
-                        while(self.start_points.findLastSet()) |parent_depth| {
+                        while (self.start_points.findLastSet()) |parent_depth| {
                             var branches = &self.branch_state[exhausted_depth];
-                            if(branches.drainNext(true)) |branch_key| {
+                            if (branches.drainNext(true)) |branch_key| {
                                 self.start_points.set(exhausted_depth);
                                 self.path[exhausted_depth] = self.path[parent_depth].get(parent_depth, exhausted_depth, branch_key);
                                 assert(self.path[exhausted_depth].tag != .none);
@@ -1522,7 +1522,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                                 exhausted_depth = self.start_points.drainNext(false).?;
                             }
                         }
-                        return IterationResult{.start_depth = start_depth, .node = node, .key = self.key};
+                        return IterationResult{ .start_depth = start_depth, .node = node, .key = self.key };
                     }
 
                     var branches = &self.branch_state[branch_depth];
@@ -1531,15 +1531,15 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                     const branch_key = branches.drainNext(true).?;
                     self.path[branch_depth] = node.get(start_depth, branch_depth, branch_key);
-                    
+
                     self.start_points.set(branch_depth);
-                    return IterationResult{.start_depth = start_depth, .node = node, .key = self.key};
+                    return IterationResult{ .start_depth = start_depth, .node = node, .key = self.key };
                 }
             };
 
             fn nodes(self: *const Tree) NodeIterator {
                 var iterator = NodeIterator{};
-                if(self.child.tag != .none) {
+                if (self.child.tag != .none) {
                     iterator.start_points.set(0);
                     iterator.path[0] = self.child;
                 }
@@ -1569,42 +1569,39 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 _ = self;
 
-
-
-
                 var card = Card.from(
-                \\┌────────────────────────────────────────────────────────────────────────────────┐
-                \\│ Tree                                                                           │
-                \\│━━━━━━                                                                          │
-                \\│                                                                                │
-                \\│  Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀   Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁                        │
-                \\│                                                                                │
-                \\│  Node Distribution                                                             │
-                \\│ ═══════════════════                                                            │
-                \\│                                                                                │
-                \\│   inner1 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃   leaf8 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  twig15 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑    │
-                \\│   inner2 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂  leaf16 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  twig16 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒    │
-                \\│   inner4 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄  leaf24 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  twig24 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓    │
-                \\│   inner8 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅  leaf32 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  twig32 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔    │
-                \\│  inner16 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆  leaf40 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  twig40 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕    │
-                \\│  inner32 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  leaf48 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  twig48 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖    │
-                \\│  inner64 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  leaf56 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  twig56 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗    │
-                \\│                            leaf64 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐  twig64 󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘    │
-                \\│                                                                                │
-                \\│  Branch Density                                                                │
-                \\│ ════════════════                                                               │
-                \\│                                                                                │
-                \\│       ┐󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       ┘󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                \\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
-                \\│                                                                                │
-                \\└────────────────────────────────────────────────────────────────────────────────┘
+                    \\┌────────────────────────────────────────────────────────────────────────────────┐
+                    \\│ Tree                                                                           │
+                    \\│━━━━━━                                                                          │
+                    \\│                                                                                │
+                    \\│  Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀   Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁                        │
+                    \\│                                                                                │
+                    \\│  Node Distribution                                                             │
+                    \\│ ═══════════════════                                                            │
+                    \\│                                                                                │
+                    \\│   inner1 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃   leaf8 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  twig15 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑    │
+                    \\│   inner2 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂  leaf16 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  twig16 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒    │
+                    \\│   inner4 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄  leaf24 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  twig24 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓    │
+                    \\│   inner8 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅  leaf32 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  twig32 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔    │
+                    \\│  inner16 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆  leaf40 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  twig40 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕    │
+                    \\│  inner32 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  leaf48 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  twig48 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖    │
+                    \\│  inner64 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  leaf56 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  twig56 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗    │
+                    \\│                            leaf64 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐  twig64 󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘    │
+                    \\│                                                                                │
+                    \\│  Density                                                                       │
+                    \\│ ═════════                                                                      │
+                    \\│                                                                                │
+                    \\│       ┐󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       ┘󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
+                    \\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
+                    \\│                                                                                │
+                    \\└────────────────────────────────────────────────────────────────────────────────┘
                 ) catch unreachable;
 
                 var count_data: [16:0]u8 = undefined;
@@ -1636,10 +1633,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var twig_56_count: u64 = 0;
                 var twig_64_count: u64 = 0;
 
-                var density_at_depth: [key_length]u64 = [_]u64{ 0 } ** key_length;
+                var density_at_depth: [key_length]u64 = [_]u64{0} ** key_length;
 
                 var node_iter = self.nodes();
-                while(node_iter.next()) |res| {
+                while (node_iter.next()) |res| {
                     node_count += 1;
                     density_at_depth[res.start_depth] += 1;
                     switch (res.node.tag) {
@@ -1671,7 +1668,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 var max_density: u64 = 0;
-                for(density_at_depth) |density| {
+                for (density_at_depth) |density| {
                     max_density = std.math.max(max_density, density);
                 }
 
@@ -1680,24 +1677,24 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var node_count_iter = (std.unicode.Utf8View.init(&node_count_data) catch unreachable).iterator();
 
                 var inner_1_count_data: [16:0]u8 = undefined;
-                 _ = std.fmt.bufPrint(&inner_1_count_data, "{d:_>16}", .{inner_1_count}) catch unreachable;
-                 var inner_1_count_iter = (std.unicode.Utf8View.init(&inner_1_count_data) catch unreachable).iterator();
+                _ = std.fmt.bufPrint(&inner_1_count_data, "{d:_>16}", .{inner_1_count}) catch unreachable;
+                var inner_1_count_iter = (std.unicode.Utf8View.init(&inner_1_count_data) catch unreachable).iterator();
 
                 var inner_2_count_data: [16:0]u8 = undefined;
-                 _ = std.fmt.bufPrint(&inner_2_count_data, "{d:_>16}", .{inner_2_count}) catch unreachable;
-                 var inner_2_count_iter = (std.unicode.Utf8View.init(&inner_2_count_data) catch unreachable).iterator();
+                _ = std.fmt.bufPrint(&inner_2_count_data, "{d:_>16}", .{inner_2_count}) catch unreachable;
+                var inner_2_count_iter = (std.unicode.Utf8View.init(&inner_2_count_data) catch unreachable).iterator();
 
                 var inner_4_count_data: [16:0]u8 = undefined;
-                 _ = std.fmt.bufPrint(&inner_4_count_data, "{d:_>16}", .{inner_4_count}) catch unreachable;
-                 var inner_4_count_iter = (std.unicode.Utf8View.init(&inner_4_count_data) catch unreachable).iterator();
+                _ = std.fmt.bufPrint(&inner_4_count_data, "{d:_>16}", .{inner_4_count}) catch unreachable;
+                var inner_4_count_iter = (std.unicode.Utf8View.init(&inner_4_count_data) catch unreachable).iterator();
 
                 var inner_8_count_data: [16:0]u8 = undefined;
-                 _ = std.fmt.bufPrint(&inner_8_count_data, "{d:_>16}", .{inner_8_count}) catch unreachable;
-                 var inner_8_count_iter = (std.unicode.Utf8View.init(&inner_8_count_data) catch unreachable).iterator();
+                _ = std.fmt.bufPrint(&inner_8_count_data, "{d:_>16}", .{inner_8_count}) catch unreachable;
+                var inner_8_count_iter = (std.unicode.Utf8View.init(&inner_8_count_data) catch unreachable).iterator();
 
                 var inner_16_count_data: [16:0]u8 = undefined;
-                 _ = std.fmt.bufPrint(&inner_16_count_data, "{d:_>16}", .{inner_16_count}) catch unreachable;
-                 var inner_16_count_iter = (std.unicode.Utf8View.init(&inner_16_count_data) catch unreachable).iterator();
+                _ = std.fmt.bufPrint(&inner_16_count_data, "{d:_>16}", .{inner_16_count}) catch unreachable;
+                var inner_16_count_iter = (std.unicode.Utf8View.init(&inner_16_count_data) catch unreachable).iterator();
 
                 var inner_32_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&inner_32_count_data, "{d:_>16}", .{inner_32_count}) catch unreachable;
@@ -1706,7 +1703,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var inner_64_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&inner_64_count_data, "{d:_>16}", .{inner_64_count}) catch unreachable;
                 var inner_64_count_iter = (std.unicode.Utf8View.init(&inner_64_count_data) catch unreachable).iterator();
-
 
                 var leaf_8_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&leaf_8_count_data, "{d:_>16}", .{leaf_8_count}) catch unreachable;
@@ -1727,7 +1723,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var leaf_40_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&leaf_40_count_data, "{d:_>16}", .{leaf_40_count}) catch unreachable;
                 var leaf_40_count_iter = (std.unicode.Utf8View.init(&leaf_40_count_data) catch unreachable).iterator();
-                
+
                 var leaf_48_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&leaf_48_count_data, "{d:_>16}", .{leaf_48_count}) catch unreachable;
                 var leaf_48_count_iter = (std.unicode.Utf8View.init(&leaf_48_count_data) catch unreachable).iterator();
@@ -1735,12 +1731,11 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var leaf_56_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&leaf_56_count_data, "{d:_>16}", .{leaf_56_count}) catch unreachable;
                 var leaf_56_count_iter = (std.unicode.Utf8View.init(&leaf_56_count_data) catch unreachable).iterator();
-                
+
                 var leaf_64_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&leaf_64_count_data, "{d:_>16}", .{leaf_64_count}) catch unreachable;
                 var leaf_64_count_iter = (std.unicode.Utf8View.init(&leaf_64_count_data) catch unreachable).iterator();
 
-                
                 var twig_15_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&twig_15_count_data, "{d:_>16}", .{twig_15_count}) catch unreachable;
                 var twig_15_count_iter = (std.unicode.Utf8View.init(&twig_15_count_data) catch unreachable).iterator();
@@ -1760,7 +1755,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var twig_40_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&twig_40_count_data, "{d:_>16}", .{twig_40_count}) catch unreachable;
                 var twig_40_count_iter = (std.unicode.Utf8View.init(&twig_40_count_data) catch unreachable).iterator();
-                
+
                 var twig_48_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&twig_48_count_data, "{d:_>16}", .{twig_48_count}) catch unreachable;
                 var twig_48_count_iter = (std.unicode.Utf8View.init(&twig_48_count_data) catch unreachable).iterator();
@@ -1768,7 +1763,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var twig_56_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&twig_56_count_data, "{d:_>16}", .{twig_56_count}) catch unreachable;
                 var twig_56_count_iter = (std.unicode.Utf8View.init(&twig_56_count_data) catch unreachable).iterator();
-                
+
                 var twig_64_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&twig_64_count_data, "{d:_>16}", .{twig_64_count}) catch unreachable;
                 var twig_64_count_iter = (std.unicode.Utf8View.init(&twig_64_count_data) catch unreachable).iterator();
@@ -1804,13 +1799,13 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                             '\u{F0017}' => twig_56_count_iter.nextCodepoint().?,
                             '\u{F0018}' => twig_64_count_iter.nextCodepoint().?,
                             '\u{F0019}' => blk: {
-                                const x:u64 = global_x - density_pos.x;
-                                const y:u64 = global_y - density_pos.y;
+                                const x: u64 = global_x - density_pos.x;
+                                const y: u64 = global_y - density_pos.y;
 
                                 const density = @intToFloat(f64, density_at_depth[x]);
-                                const norm_density = density/@intToFloat(f64, max_density);
-                                
-                                const s: u21 = if (norm_density > (@intToFloat(f64, (7 - y)) * (1.0/8.0))) '█' else ' ';
+                                const norm_density = density / @intToFloat(f64, max_density);
+
+                                const s: u21 = if (norm_density > (@intToFloat(f64, (7 - y)) * (1.0 / 8.0))) '█' else ' ';
                                 break :blk s;
                             },
                             else => cell.*,
@@ -2102,14 +2097,14 @@ test "benchmark" {
     }
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
-    
+
     // var node_iter = tree.nodes();
     // std.debug.print("{any} {any}\n", .{node_iter.start_points.findLastSet(), node_iter.start_points});
     // while(node_iter.next()) |_| {
     //     std.debug.print("{any} {any}\n", .{node_iter.start_points.findLastSet(), node_iter.start_points});
     // }
-    
-    std.debug.print("{s}\n", .{ tree });
+
+    std.debug.print("{s}\n", .{tree});
 }
 
 test "benchmark hashing" {
