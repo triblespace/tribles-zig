@@ -642,6 +642,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
         fn InnerNode(comptime bucket_count: u8) type {
             const head_infix_len = 6;
             const body_infix_len = 30;
+            const infix_len = head_infix_len + body_infix_len;
+
             return extern struct {
                 /// The address of the pointer associated with the key.
                 body: *Body,
@@ -898,6 +900,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
+                    assert((branch_depth - start_depth) <= infix_len); // TODO make sure this doesn't happen by allocating intermediary nodes.
+
                     const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = Body{ .ref_count = 1, .leaf_count = 1, .segment_count = 1, .infix = undefined };
@@ -1034,7 +1038,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         }
                     }
 
-                    const new_branch_node_above = try InnerNode(1).init(start_depth, branch_depth, key, allocator);
+                    const new_branch_node_above = try InnerNode(1).init(start_depth, branch_depth, key, allocator); // TODO add check for infix length
                     const new_sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
 
                     var recycled_self = self;
@@ -1244,7 +1248,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 _ = self;
                 _ = fmt;
                 _ = options;
-                try writer.print("Inline suffix: {any}\n", .{self.suffix});
+                try writer.print("Inline suffix: {[1]s:_>[0]}\n", .{
+                    head_suffix_len,
+                    std.fmt.fmtSliceHexUpper(&self.suffix) });
             }
 
             pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -1386,7 +1392,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     } else {
                         try writer.print("  value: {}\n", .{self.body.value});
                     }
-                    try writer.print("  suffixes: {any} > {any}\n", .{ self.suffix, self.body.suffix });
+                    try writer.print("  suffixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{
+                        head_suffix_len, body_suffix_len,
+                        std.fmt.fmtSliceHexUpper(&self.suffix),
+                        std.fmt.fmtSliceHexUpper(&self.body.suffix) });
                 }
 
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -2066,7 +2075,7 @@ const time = std.time;
 // 8:tag = 1 | 8:infix | 48:leaf ptr
 // 8:tag = 2 | 8:infix | 48:inner ptr
 
-const benchmark_size: usize = 100000;
+const benchmark_size: usize = 50;
 
 test "benchmark" {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -2085,8 +2094,9 @@ test "benchmark" {
     std.debug.print("Inserting {d} tribles into PACT.\n", .{benchmark_size});
 
     var i: u64 = 0;
+    var t = Trible.initAribitrary(rnd);
     while (i < benchmark_size) : (i += 1) {
-        const t = Trible.initAribitrary(rnd);
+        t = Trible.initAribitraryLike(rnd, 0.2, t);
         //const value = rnd.int(usize);
 
         timer.reset();
@@ -2098,13 +2108,13 @@ test "benchmark" {
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
 
-    // var node_iter = tree.nodes();
-    // std.debug.print("{any} {any}\n", .{node_iter.start_points.findLastSet(), node_iter.start_points});
-    // while(node_iter.next()) |_| {
-    //     std.debug.print("{any} {any}\n", .{node_iter.start_points.findLastSet(), node_iter.start_points});
-    // }
-
     std.debug.print("{s}\n", .{tree});
+
+    var node_iter = tree.nodes();
+    while(node_iter.next()) |res| {
+         std.debug.print("Depth: {d}..{d}\n{s}\n", .{res.start_depth, res.node.depth(), res.node});
+    }
+
 }
 
 test "benchmark hashing" {
@@ -2116,8 +2126,9 @@ test "benchmark hashing" {
     std.debug.print("Hashing {d} tribles.\n", .{benchmark_size});
 
     var i: u64 = 0;
+    var t = Trible.initAribitrary(rnd);
     while (i < benchmark_size) : (i += 1) {
-        const t = Trible.initAribitrary(rnd);
+        t = Trible.initAribitraryLike(rnd, 0.2, t);
 
         timer.reset();
 
@@ -2144,8 +2155,9 @@ test "benchmark std" {
     std.debug.print("Inserting {d} tribles into AutoHashMap.\n", .{benchmark_size});
 
     var i: u64 = 0;
+    var t = Trible.initAribitrary(rnd);
     while (i < benchmark_size) : (i += 1) {
-        const t = Trible.initAribitrary(rnd);
+        t = Trible.initAribitraryLike(rnd, 0.2, t);
         //const value = rnd.int(usize);
 
         timer.reset();
