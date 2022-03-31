@@ -1636,12 +1636,12 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var twig_56_count: u64 = 0;
                 var twig_64_count: u64 = 0;
 
-                //var density: [key_length]u64 = [_]u64{ 0 } ** key_length;
+                var density_at_depth: [key_length]u64 = [_]u64{ 0 } ** key_length;
 
                 var node_iter = self.nodes();
                 while(node_iter.next()) |res| {
                     node_count += 1;
-                    //density[res.start_depth] += 1;
+                    density_at_depth[res.start_depth] += 1;
                     switch (res.node.tag) {
                         .none => @panic("Unexpected none in tree."),
                         .inner1 => inner_1_count += 1,
@@ -1668,6 +1668,11 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         .twig56 => twig_56_count += 1,
                         .twig64 => twig_64_count += 1,
                     }
+                }
+
+                var max_density: u64 = 0;
+                for(density_at_depth) |density| {
+                    max_density = std.math.max(max_density, density);
                 }
 
                 var node_count_data: [16:0]u8 = undefined;
@@ -1768,10 +1773,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 _ = std.fmt.bufPrint(&twig_64_count_data, "{d:_>16}", .{twig_64_count}) catch unreachable;
                 var twig_64_count_iter = (std.unicode.Utf8View.init(&twig_64_count_data) catch unreachable).iterator();
 
-                //const lower_childset_pos = card.findTopLeft('\u{F000F}').?;
+                const density_pos = card.findTopLeft('\u{F0019}').?;
 
-                for (card.grid) |*row| {
-                    for (row.*) |*cell| {
+                for (card.grid) |*row, global_y| {
+                    for (row.*) |*cell, global_x| {
                         cell.* = switch (cell.*) {
                             '\u{F0000}' => count_iter.nextCodepoint().?,
                             '\u{F0001}' => node_count_iter.nextCodepoint().?,
@@ -1798,6 +1803,16 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                             '\u{F0016}' => twig_48_count_iter.nextCodepoint().?,
                             '\u{F0017}' => twig_56_count_iter.nextCodepoint().?,
                             '\u{F0018}' => twig_64_count_iter.nextCodepoint().?,
+                            '\u{F0019}' => blk: {
+                                const x:u64 = global_x - density_pos.x;
+                                const y:u64 = global_y - density_pos.y;
+
+                                const density = @intToFloat(f64, density_at_depth[x]);
+                                const norm_density = density/@intToFloat(f64, max_density);
+                                
+                                const s: u21 = if (norm_density > (@intToFloat(f64, (7 - y)) * (1.0/8.0))) '█' else ' ';
+                                break :blk s;
+                            },
                             else => cell.*,
                         };
                     }
