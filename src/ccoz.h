@@ -1,14 +1,14 @@
 #include <coz.h>
 
-void cozBegin(char* name) {
+void cozBegin(const char* name) {
     COZ_BEGIN(name);
 }
 
-void cozEnd(char* name) {
+void cozEnd(const char* name) {
     COZ_END(name);
 }
 
-void cozProgressNamed(char* name) {
+void cozProgressNamed(const char* name) {
     COZ_PROGRESS_NAMED(name);
 }
 
