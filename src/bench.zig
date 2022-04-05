@@ -2,6 +2,8 @@ const std = @import("std");
 const testing = std.testing;
 const time = std.time;
 
+const coz = @import("./coz.zig");
+
 const Trible = @import("Trible.zig").Trible;
 const PACT = @import("./PACT.zig").PACT;
 const keyHash = @import("./PACT.zig").keyHash;
@@ -32,6 +34,8 @@ pub fn benchmark() !void {
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
+
+    coz.begin("insert");
     while (i < benchmark_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
         //const value = rnd.int(usize);
@@ -39,9 +43,11 @@ pub fn benchmark() !void {
         timer.reset();
 
         try tree.put(&t.data, null);
+        coz.progress();
 
         t_total += timer.lap();
     }
+    coz.end("insert");
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
 

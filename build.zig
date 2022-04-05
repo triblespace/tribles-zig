@@ -16,6 +16,10 @@ pub fn build(b: *std.build.Builder) void {
     var bench_exe = b.addExecutable("bench", "src/bench.zig");
     bench_exe.setTarget(target);
     bench_exe.setBuildMode(mode);
+
+    bench_exe.linkLibC();
+    bench_exe.linkSystemLibrary("libcoz");
+
     bench_exe.install();
 
     const test_step = b.step("test", "Run library tests");
