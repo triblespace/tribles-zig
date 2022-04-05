@@ -19,7 +19,7 @@ pub fn build(b: *std.build.Builder) void {
 
     bench_exe.addIncludeDir("src");
     bench_exe.linkLibC();
-    bench_exe.linkSystemLibrary("libcoz");
+    bench_exe.linkSystemLibrary("coz");
 
     bench_exe.install();
 
