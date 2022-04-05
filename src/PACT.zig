@@ -169,13 +169,11 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
     return lut;
 }
 
-pub const MAX_KEY_LEN = 64;
-
 /// Define a PACT datastructure with the given parameters.
-pub fn makePACT(comptime key_length: u8, comptime T: type) type {
-    assert(key_length <= MAX_KEY_LEN);
+pub const PACT = extern struct {
+        pub const key_length = 64;
+        pub const T = u64;
 
-    return extern struct {
         const allocError = std.mem.Allocator.Error;
 
         const NodeTag = enum(u8) {
@@ -639,10 +637,17 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
         const max_bucket_count = 64; // BRANCH_FACTOR / Bucket.SLOT_COUNT;
 
+        const HLL = extern struct {
+            pub const bucket_count = 32;
+            buckets: [bucket_count]u8,
+
+            pub fn init() HLL {
+                return HLL{.buckets = [_]u8{0} ** bucket_count };
+            }
+        };
+
         fn InnerNode(comptime bucket_count: u8) type {
             const head_infix_len = 6;
-            const body_infix_len = 30;
-            const infix_len = head_infix_len + body_infix_len;
 
             return extern struct {
                 /// The address of the pointer associated with the key.
@@ -660,10 +665,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 const Body = extern struct {
                     leaf_count: u64,
-                    segment_count: u64,
+                    ref_count: u64 = 1,
                     child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
-                    ref_count: u16 = 1,
-                    infix: [body_infix_len]u8,
+                    segment_hll: HLL = HLL.init(),
+                    infix: [key_length]u8,
                     child_set: ByteBitset = ByteBitset.initEmpty(),
                     rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
                     buckets: [bucket_count]Bucket = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
@@ -784,19 +789,19 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         \\│ ═════════                                                                      │
                         \\│                                                                                │
                         \\│   Hash: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Leafs: 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂        │
-                        \\│   Ref#: 󰀃󰀃󰀃󰀃󰀃                            Segments: 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄        │
+                        \\│   Ref#: 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃                Depth: 󰀇󰀇                          │
                         \\│                                                                                │
                         \\│ Infix                                                                          │
                         \\│ ══════                                                                         │
-                        \\│         ┌─node start                                                           │
-                        \\│         ▼                                                                      │
+                        \\│                                                                                │
                         \\│   Head: 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅                                                           │
-                        \\│   Body: 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆           │
-                        \\│         ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▲          │
-                        \\│                                                     branch depth=󰀇󰀇─┘          │
+                        \\│                                                                                │
+                        \\│   Body: 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆       │
+                        \\│         󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆       │
+                        \\│         ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔         │
                         \\│ Children                                                                       │
                         \\│ ══════════                                                                     │
-                        \\│                                         0123456789ABCDEF     0123456789ABCDEF  │
+                        \\│                         TODO add %      0123456789ABCDEF     0123456789ABCDEF  │
                         \\│  ▼                                     ┌────────────────┐   ┌────────────────┐ │
                         \\│  ┌                  ● Seq Hash       0_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ 8_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
                         \\│  │󰀈                 ◆ Rand Hash      1_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ 9_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
@@ -822,20 +827,16 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = std.fmt.bufPrint(&leaf_count_data, "{d:_>20}", .{self.body.leaf_count}) catch unreachable;
                     var leaf_count_iter = (std.unicode.Utf8View.init(&leaf_count_data) catch unreachable).iterator();
 
-                    var ref_count_data: [5:0]u8 = undefined;
-                    _ = std.fmt.bufPrint(&ref_count_data, "{d:_>5}", .{self.body.ref_count}) catch unreachable;
+                    var ref_count_data: [20:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&ref_count_data, "{d:_>20}", .{self.body.ref_count}) catch unreachable;
                     var ref_count_iter = (std.unicode.Utf8View.init(&ref_count_data) catch unreachable).iterator();
-
-                    var segment_count_data: [20:0]u8 = undefined;
-                    _ = std.fmt.bufPrint(&segment_count_data, "{d:_>20}", .{self.body.segment_count}) catch unreachable;
-                    var segment_count_iter = (std.unicode.Utf8View.init(&segment_count_data) catch unreachable).iterator();
 
                     var head_infix_data: [12:0]u8 = undefined;
                     _ = std.fmt.bufPrint(&head_infix_data, "{s:_>12}", .{std.fmt.fmtSliceHexUpper(&self.infix)}) catch unreachable;
                     var head_infix_iter = (std.unicode.Utf8View.init(&head_infix_data) catch unreachable).iterator();
 
-                    var body_infix_data: [60:0]u8 = undefined;
-                    _ = std.fmt.bufPrint(&body_infix_data, "{s:_>60}", .{std.fmt.fmtSliceHexUpper(&self.body.infix)}) catch unreachable;
+                    var body_infix_data: [128:0]u8 = undefined;
+                    _ = std.fmt.bufPrint(&body_infix_data, "{s:_>128}", .{std.fmt.fmtSliceHexUpper(&self.body.infix)}) catch unreachable;
                     var body_infix_iter = (std.unicode.Utf8View.init(&body_infix_data) catch unreachable).iterator();
 
                     var branch_depth_data: [2:0]u8 = undefined;
@@ -852,7 +853,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                                 '\u{F0001}' => hash_iter.nextCodepoint().?,
                                 '\u{F0002}' => leaf_count_iter.nextCodepoint() orelse unreachable,
                                 '\u{F0003}' => ref_count_iter.nextCodepoint() orelse unreachable,
-                                '\u{F0004}' => segment_count_iter.nextCodepoint() orelse unreachable,
                                 '\u{F0005}' => head_infix_iter.nextCodepoint() orelse unreachable,
                                 '\u{F0006}' => body_infix_iter.nextCodepoint() orelse unreachable,
                                 '\u{F0007}' => branch_depth_iter.nextCodepoint() orelse unreachable,
@@ -900,16 +900,11 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                    assert((branch_depth - start_depth) <= infix_len); // TODO make sure this doesn't happen by allocating intermediary nodes.
 
                     const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
-                    new_body.* = Body{ .ref_count = 1, .leaf_count = 1, .segment_count = 1, .infix = undefined };
-
-                    const body_infix_length = @minimum(branch_depth, new_body.infix.len);
-                    const body_infix_start = new_body.infix.len - body_infix_length;
-                    const key_start = branch_depth - body_infix_length;
-                    mem.copy(u8, new_body.infix[body_infix_start..new_body.infix.len], key[key_start..branch_depth]);
+                    new_body.* = Body{ .ref_count = 1, .leaf_count = 1, .infix = undefined };
+                    new_body.infix = key.*;
 
                     var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
 
@@ -922,13 +917,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 /// TODO: document this!
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
-                    if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
-                        // Reference counter exhausted, we need to make a copy of this node.
-                        return Node.from(Head, try self.copy(allocator));
-                    } else {
-                        self.body.ref_count += 1;
-                        return null;
-                    }
+                    _ = allocator;
+                    self.body.ref_count += 1;
+                    return null;
                 }
 
                 pub fn rel(self: Head, allocator: std.mem.Allocator) void {
@@ -961,9 +952,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                    if (self.branch_depth <= at_depth or at_depth < start_depth) return null;
+                    if (at_depth < start_depth or self.branch_depth <= at_depth) return null;
                     if (at_depth < start_depth + head_infix_len) return self.infix[at_depth - start_depth];
-                    return self.body.infix[(at_depth + @as(u8, self.body.infix.len)) - self.branch_depth];
+                    return self.body.infix[at_depth];
                 }
 
                 pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
@@ -994,7 +985,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                             const old_child = self.cuckooGet(byte_key);
                             const old_child_hash = old_child.hash(self.branch_depth, key);
                             const old_child_count = old_child.count();
-                            const old_child_segment_count = 1; // TODO old_child.segmentCount(branch_depth);
                             const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
                             const new_child_hash = new_child.hash(branch_depth, key);
                             if (Hash.equal(old_child_hash, new_child_hash)) {
@@ -1002,10 +992,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                             }
                             const new_hash = Hash.xor(Hash.xor(self.body.child_sum_hash, old_child_hash), new_child_hash);
                             const new_count = self.body.leaf_count - old_child_count + new_child.count();
-                            const new_segment_count =
-                                self.body.segment_count -
-                                old_child_segment_count +
-                                1; // TODO new_child.segmentCount(branch_depth);
 
                             var self_or_copy = self;
                             if (!single_owner) {
@@ -1014,20 +1000,17 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                             }
                             self_or_copy.body.child_sum_hash = new_hash;
                             self_or_copy.body.leaf_count = new_count;
-                            self_or_copy.body.segment_count = new_segment_count;
                             self_or_copy.cuckooUpdate(new_child);
                             return Node.from(Head, self_or_copy);
                         } else {
                             const new_child_node = try InitLeafNode(branch_depth, key, value, allocator);
                             const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(branch_depth, key));
                             const new_count = self.body.leaf_count + 1;
-                            const new_segment_count = self.body.segment_count + 1;
 
                             var self_or_copy = if (single_owner) self else try self.copy(allocator);
 
                             self_or_copy.body.child_sum_hash = new_hash;
                             self_or_copy.body.leaf_count = new_count;
-                            self_or_copy.body.segment_count = new_segment_count;
 
                             return try self_or_copy.cuckooPut(new_child_node, allocator);
                         }
@@ -1046,12 +1029,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                     new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.body.child_sum_hash, new_sibling_leaf_node.hash(branch_depth, key));
                     new_branch_node_above.body.leaf_count = recycled_self.body.leaf_count + 1;
-                    new_branch_node_above.body.segment_count = 3;
-                    // We need to check if this insered moved our branchDepth across a segment boundary.
-                    // const segmentCount =
-                    //     SEGMENT_LUT[depth] === SEGMENT_LUT[this.branchDepth]
-                    //     ? this._segmentCount + 1
-                    //     : 2;
 
                     return Node.from(InnerNode(1), new_branch_node_above);
                 }
@@ -1282,7 +1259,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             }
 
             pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                if (at_depth < start_depth) return null;
+                if (at_depth < start_depth or key_length <= at_depth) return null;
                 return self.suffix[at_depth - start_depth];
             }
 
@@ -1325,7 +1302,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 _ = try new_branch_node_above.cuckooPut(sibling_leaf_node, allocator);
                 new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_leaf_node.hash(branch_depth, key));
                 new_branch_node_above.body.leaf_count = 2;
-                new_branch_node_above.body.segment_count = 2;
 
                 return Node.from(InnerNode(1), new_branch_node_above);
             }
@@ -1438,7 +1414,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 }
 
                 pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                    if (key_length <= at_depth or at_depth < start_depth) return null;
+                    if (at_depth < start_depth or key_length <= at_depth) return null;
                     if (at_depth < start_depth + head_suffix_len) return self.suffix[at_depth - start_depth];
                     return self.body.suffix[at_depth - (key_length - body_suffix_len)];
                 }
@@ -1483,7 +1459,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     _ = try new_branch_node_above.cuckooPut(sibling_leaf_node, allocator);
                     new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_leaf_node.hash(branch_depth, key));
                     new_branch_node_above.body.leaf_count = 2;
-                    new_branch_node_above.body.segment_count = 2;
 
                     return Node.from(InnerNode(1), new_branch_node_above);
                 }
@@ -1575,44 +1550,40 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 var card = Card.from(
                     \\┌────────────────────────────────────────────────────────────────────────────────┐
-                    \\│ Tree                                                                           │
-                    \\│━━━━━━                                                                          │
+                    \\│  Tree                                                                          │
+                    \\│ ━━━━━━                                                                         │
                     \\│                                                                                │
-                    \\│  Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀   Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁                        │
+                    \\│         Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀      Memory (keys): 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃           │
+                    \\│    Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Memory (actual): 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄           │
+                    \\│   Alloc Count: 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂           Overhead: 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅           │
                     \\│                                                                                │
-                    \\│  Node Distribution                                                             │
-                    \\│ ═══════════════════                                                            │
+                    \\│   Node Distribution                                                            │
+                    \\│  ═══════════════════                                                           │
                     \\│                                                                                │
-                    \\│   inner1 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃   leaf8 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  twig15 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑    │
-                    \\│   inner2 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂  leaf16 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  twig16 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒    │
-                    \\│   inner4 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄  leaf24 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  twig24 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓    │
-                    \\│   inner8 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅  leaf32 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  twig32 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔    │
-                    \\│  inner16 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆  leaf40 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  twig40 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕    │
-                    \\│  inner32 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  leaf48 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  twig48 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖    │
-                    \\│  inner64 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  leaf56 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  twig56 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗    │
-                    \\│                            leaf64 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐  twig64 󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘    │
+                    \\│      none 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆   leaf8 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  twig15 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖   │
+                    \\│    inner1 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  leaf16 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  twig16 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗   │
+                    \\│    inner2 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  leaf24 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐  twig24 󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘   │
+                    \\│    inner4 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  leaf32 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑  twig32 󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙   │
+                    \\│    inner8 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  leaf40 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒  twig40 󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚   │
+                    \\│   inner16 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  leaf48 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓  twig48 󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛   │
+                    \\│   inner32 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  leaf56 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔  twig56 󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜   │
+                    \\│   inner64 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  leaf64 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕  twig64 󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝   │
                     \\│                                                                                │
-                    \\│  Density                                                                       │
-                    \\│ ═════════                                                                      │
-                    \\│                                                                                │
-                    \\│       ┐󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       │󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       ┘󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙        │
-                    \\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
-                    \\│                                                                                │
+                    \\│   Density                                                                      │
+                    \\│  ═════════                                                                     │
+                    \\│        ┐󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        ┘󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
+                    \\│        0┌──────────────┬───────────────┬───────────────┬───────────────┐63     │
                     \\└────────────────────────────────────────────────────────────────────────────────┘
                 ) catch unreachable;
 
-                var count_data: [16:0]u8 = undefined;
-                _ = std.fmt.bufPrint(&count_data, "{d:_>16}", .{self.count()}) catch unreachable;
-                var count_iter = (std.unicode.Utf8View.init(&count_data) catch unreachable).iterator();
-
-                var node_count: u64 = 0;
+                var none_count: u64 = 0;
                 var inner_1_count: u64 = 0;
                 var inner_2_count: u64 = 0;
                 var inner_4_count: u64 = 0;
@@ -1641,10 +1612,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                 var node_iter = self.nodes();
                 while (node_iter.next()) |res| {
-                    node_count += 1;
                     density_at_depth[res.start_depth] += 1;
                     switch (res.node.tag) {
-                        .none => @panic("Unexpected none in tree."),
+                        .none => none_count += 1,
                         .inner1 => inner_1_count += 1,
                         .inner2 => inner_2_count += 1,
                         .inner4 => inner_4_count += 1,
@@ -1671,14 +1641,114 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     }
                 }
 
+
+                const node_count: u64 = none_count
+                                      + inner_1_count
+                                      + inner_2_count
+                                      + inner_4_count
+                                      + inner_8_count
+                                      + inner_16_count
+                                      + inner_32_count
+                                      + inner_64_count
+                                      + leaf_8_count
+                                      + leaf_16_count
+                                      + leaf_24_count
+                                      + leaf_32_count
+                                      + leaf_40_count
+                                      + leaf_48_count
+                                      + leaf_56_count
+                                      + leaf_64_count
+                                      + twig_15_count
+                                      + twig_16_count
+                                      + twig_24_count
+                                      + twig_32_count
+                                      + twig_40_count
+                                      + twig_48_count
+                                      + twig_56_count
+                                      + twig_64_count;
+
+                const alloc_count: u64 = inner_1_count
+                                       + inner_2_count
+                                       + inner_4_count
+                                       + inner_8_count
+                                       + inner_16_count
+                                       + inner_32_count
+                                       + inner_64_count
+                                       + leaf_8_count
+                                       + leaf_16_count
+                                       + leaf_24_count
+                                       + leaf_32_count
+                                       + leaf_40_count
+                                       + leaf_48_count
+                                       + leaf_56_count
+                                       + leaf_64_count
+                                       + twig_16_count
+                                       + twig_24_count
+                                       + twig_32_count
+                                       + twig_40_count
+                                       + twig_48_count
+                                       + twig_56_count
+                                       + twig_64_count;
+                
+                var mem_keys: u64 = self.count() * key_length;
+
+                const mem_actual: u64 = inner_1_count * @sizeOf(InnerNode(1).Body)
+                                       + inner_2_count * @sizeOf(InnerNode(2).Body)
+                                       + inner_4_count * @sizeOf(InnerNode(4).Body)
+                                       + inner_8_count * @sizeOf(InnerNode(8).Body)
+                                       + inner_16_count * @sizeOf(InnerNode(16).Body)
+                                       + inner_32_count * @sizeOf(InnerNode(32).Body)
+                                       + inner_64_count * @sizeOf(InnerNode(64).Body)
+                                       + leaf_8_count * @sizeOf(LeafNode(false, 8).Body)
+                                       + leaf_16_count * @sizeOf(LeafNode(false, 16).Body)
+                                       + leaf_24_count * @sizeOf(LeafNode(false, 24).Body)
+                                       + leaf_32_count * @sizeOf(LeafNode(false, 32).Body)
+                                       + leaf_40_count * @sizeOf(LeafNode(false, 40).Body)
+                                       + leaf_48_count * @sizeOf(LeafNode(false, 48).Body)
+                                       + leaf_56_count * @sizeOf(LeafNode(false, 56).Body)
+                                       + leaf_64_count * @sizeOf(LeafNode(false, 64).Body)
+                                       + twig_16_count * @sizeOf(LeafNode(true, 16).Body)
+                                       + twig_24_count * @sizeOf(LeafNode(true, 24).Body)
+                                       + twig_32_count * @sizeOf(LeafNode(true, 32).Body)
+                                       + twig_40_count * @sizeOf(LeafNode(true, 40).Body)
+                                       + twig_48_count * @sizeOf(LeafNode(true, 48).Body)
+                                       + twig_56_count * @sizeOf(LeafNode(true, 56).Body)
+                                       + twig_64_count * @sizeOf(LeafNode(true, 64).Body);
+
+                const mem_overhead: f64 = @intToFloat(f64, mem_actual) - @intToFloat(f64, mem_keys);
+
                 var max_density: u64 = 0;
                 for (density_at_depth) |density| {
                     max_density = std.math.max(max_density, density);
                 }
 
+                var count_data: [16:0]u8 = undefined;
+                _ = std.fmt.bufPrint(&count_data, "{d:_>16}", .{self.count()}) catch unreachable;
+                var count_iter = (std.unicode.Utf8View.init(&count_data) catch unreachable).iterator();
+
                 var node_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&node_count_data, "{d:_>16}", .{node_count}) catch unreachable;
                 var node_count_iter = (std.unicode.Utf8View.init(&node_count_data) catch unreachable).iterator();
+
+                var alloc_count_data: [16:0]u8 = undefined;
+                _ = std.fmt.bufPrint(&alloc_count_data, "{d:_>16}", .{alloc_count}) catch unreachable;
+                var alloc_count_iter = (std.unicode.Utf8View.init(&alloc_count_data) catch unreachable).iterator();
+
+                var mem_keys_data: [16:0]u8 = undefined;
+                _ = std.fmt.bufPrint(&mem_keys_data, "{d:_>16}", .{mem_keys}) catch unreachable;
+                var mem_keys_iter = (std.unicode.Utf8View.init(&mem_keys_data) catch unreachable).iterator();
+
+                var mem_actual_data: [16:0]u8 = undefined;
+                _ = std.fmt.bufPrint(&mem_actual_data, "{d:_>16}", .{mem_actual}) catch unreachable;
+                var mem_actual_iter = (std.unicode.Utf8View.init(&mem_actual_data) catch unreachable).iterator();
+
+                var mem_overhead_data: [16:0]u8 = undefined;
+                _ = std.fmt.bufPrint(&mem_overhead_data, "{d:_>16}", .{mem_overhead}) catch unreachable;
+                var mem_overhead_iter = (std.unicode.Utf8View.init(&mem_overhead_data) catch unreachable).iterator();
+
+                var none_count_data: [16:0]u8 = undefined;
+                _ = std.fmt.bufPrint(&none_count_data, "{d:_>16}", .{none_count}) catch unreachable;
+                var none_count_iter = (std.unicode.Utf8View.init(&none_count_data) catch unreachable).iterator();
 
                 var inner_1_count_data: [16:0]u8 = undefined;
                 _ = std.fmt.bufPrint(&inner_1_count_data, "{d:_>16}", .{inner_1_count}) catch unreachable;
@@ -1772,37 +1842,42 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 _ = std.fmt.bufPrint(&twig_64_count_data, "{d:_>16}", .{twig_64_count}) catch unreachable;
                 var twig_64_count_iter = (std.unicode.Utf8View.init(&twig_64_count_data) catch unreachable).iterator();
 
-                const density_pos = card.findTopLeft('\u{F0019}').?;
+                const density_pos = card.findTopLeft('\u{F001E}').?;
 
                 for (card.grid) |*row, global_y| {
                     for (row.*) |*cell, global_x| {
                         cell.* = switch (cell.*) {
                             '\u{F0000}' => count_iter.nextCodepoint().?,
                             '\u{F0001}' => node_count_iter.nextCodepoint().?,
-                            '\u{F0002}' => inner_1_count_iter.nextCodepoint().?,
-                            '\u{F0003}' => inner_2_count_iter.nextCodepoint().?,
-                            '\u{F0004}' => inner_4_count_iter.nextCodepoint().?,
-                            '\u{F0005}' => inner_8_count_iter.nextCodepoint().?,
-                            '\u{F0006}' => inner_16_count_iter.nextCodepoint().?,
-                            '\u{F0007}' => inner_32_count_iter.nextCodepoint().?,
-                            '\u{F0008}' => inner_64_count_iter.nextCodepoint().?,
-                            '\u{F0009}' => leaf_8_count_iter.nextCodepoint().?,
-                            '\u{F000A}' => leaf_16_count_iter.nextCodepoint().?,
-                            '\u{F000B}' => leaf_24_count_iter.nextCodepoint().?,
-                            '\u{F000C}' => leaf_32_count_iter.nextCodepoint().?,
-                            '\u{F000D}' => leaf_40_count_iter.nextCodepoint().?,
-                            '\u{F000E}' => leaf_48_count_iter.nextCodepoint().?,
-                            '\u{F000F}' => leaf_56_count_iter.nextCodepoint().?,
-                            '\u{F0010}' => leaf_64_count_iter.nextCodepoint().?,
-                            '\u{F0011}' => twig_15_count_iter.nextCodepoint().?,
-                            '\u{F0012}' => twig_16_count_iter.nextCodepoint().?,
-                            '\u{F0013}' => twig_24_count_iter.nextCodepoint().?,
-                            '\u{F0014}' => twig_32_count_iter.nextCodepoint().?,
-                            '\u{F0015}' => twig_40_count_iter.nextCodepoint().?,
-                            '\u{F0016}' => twig_48_count_iter.nextCodepoint().?,
-                            '\u{F0017}' => twig_56_count_iter.nextCodepoint().?,
-                            '\u{F0018}' => twig_64_count_iter.nextCodepoint().?,
-                            '\u{F0019}' => blk: {
+                            '\u{F0002}' => alloc_count_iter.nextCodepoint().?,
+                            '\u{F0003}' => mem_keys_iter.nextCodepoint().?,
+                            '\u{F0004}' => mem_actual_iter.nextCodepoint().?,
+                            '\u{F0005}' => mem_overhead_iter.nextCodepoint().?,
+                            '\u{F0006}' => none_count_iter.nextCodepoint().?,
+                            '\u{F0007}' => inner_1_count_iter.nextCodepoint().?,
+                            '\u{F0008}' => inner_2_count_iter.nextCodepoint().?,
+                            '\u{F0009}' => inner_4_count_iter.nextCodepoint().?,
+                            '\u{F000A}' => inner_8_count_iter.nextCodepoint().?,
+                            '\u{F000B}' => inner_16_count_iter.nextCodepoint().?,
+                            '\u{F000C}' => inner_32_count_iter.nextCodepoint().?,
+                            '\u{F000D}' => inner_64_count_iter.nextCodepoint().?,
+                            '\u{F000E}' => leaf_8_count_iter.nextCodepoint().?,
+                            '\u{F000F}' => leaf_16_count_iter.nextCodepoint().?,
+                            '\u{F0010}' => leaf_24_count_iter.nextCodepoint().?,
+                            '\u{F0011}' => leaf_32_count_iter.nextCodepoint().?,
+                            '\u{F0012}' => leaf_40_count_iter.nextCodepoint().?,
+                            '\u{F0013}' => leaf_48_count_iter.nextCodepoint().?,
+                            '\u{F0014}' => leaf_56_count_iter.nextCodepoint().?,
+                            '\u{F0015}' => leaf_64_count_iter.nextCodepoint().?,
+                            '\u{F0016}' => twig_15_count_iter.nextCodepoint().?,
+                            '\u{F0017}' => twig_16_count_iter.nextCodepoint().?,
+                            '\u{F0018}' => twig_24_count_iter.nextCodepoint().?,
+                            '\u{F0019}' => twig_32_count_iter.nextCodepoint().?,
+                            '\u{F001A}' => twig_40_count_iter.nextCodepoint().?,
+                            '\u{F001B}' => twig_48_count_iter.nextCodepoint().?,
+                            '\u{F001C}' => twig_56_count_iter.nextCodepoint().?,
+                            '\u{F001D}' => twig_64_count_iter.nextCodepoint().?,
+                            '\u{F001E}' => blk: {
                                 const x: u64 = global_x - density_pos.x;
                                 const y: u64 = global_y - density_pos.y;
 
@@ -1957,13 +2032,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             //   }
             // }
         };
-    };
-}
+};
 
 test "Alignment" {
-    const key_length = 64;
-    const PACT = makePACT(key_length, usize);
-
     std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(1), @alignOf(PACT.InnerNode(1).Body) });
     std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(2), @alignOf(PACT.InnerNode(2).Body) });
     std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(4), @alignOf(PACT.InnerNode(4).Body) });
@@ -1978,8 +2049,6 @@ test "create tree" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    const key_length = 64;
-    const PACT = makePACT(key_length, usize);
     var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 }
@@ -1989,8 +2058,6 @@ test "empty tree has count 0" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    const key_length = 64;
-    const PACT = makePACT(key_length, usize);
     var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
@@ -2002,12 +2069,10 @@ test "single item tree has count 1" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    const key_length = 64;
-    const PACT = makePACT(key_length, usize);
     var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
-    const key: [key_length]u8 = [_]u8{0} ** key_length;
+    const key: [PACT.key_length]u8 = [_]u8{0} ** PACT.key_length;
     try tree.put(&key, 42);
 
     try expectEqual(tree.count(), 1);
@@ -2018,15 +2083,13 @@ test "immutable tree fork" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    const key_length = 64;
-    const PACT = makePACT(key_length, usize);
     var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
     var new_tree = try tree.fork();
     defer new_tree.deinit();
 
-    const key: [key_length]u8 = [_]u8{0} ** key_length;
+    const key: [PACT.key_length]u8 = [_]u8{0} ** PACT.key_length;
     try new_tree.put(&key, 42);
 
     try expectEqual(tree.count(), 0);
@@ -2042,12 +2105,10 @@ test "multi item tree has correct count" {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    const key_length = 64;
-    const PACT = makePACT(key_length, usize);
     var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
-    var key: [key_length]u8 = undefined;
+    var key: [PACT.key_length]u8 = undefined;
 
     var i: u64 = 0;
     while (i < total_runs) : (i += 1) {
@@ -2070,7 +2131,7 @@ const time = std.time;
 // 8:tag = 1 | 8:infix | 48:leaf ptr
 // 8:tag = 2 | 8:infix | 48:inner ptr
 
-const benchmark_size: usize = 50;
+const benchmark_size: usize = 10000;
 
 test "benchmark" {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -2082,7 +2143,6 @@ test "benchmark" {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    const PACT = makePACT(Trible.size, usize);
     var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
@@ -2105,10 +2165,10 @@ test "benchmark" {
 
     std.debug.print("{s}\n", .{tree});
 
-    var node_iter = tree.nodes();
-    while(node_iter.next()) |res| {
-         std.debug.print("Depth: {d}..{d}\n{s}\n", .{res.start_depth, res.node.depth(), res.node});
-    }
+    // var node_iter = tree.nodes();
+    // while(node_iter.next()) |res| {
+    //      std.debug.print("Depth: {d}..{d}\n{s}\n", .{res.start_depth, res.node.depth(), res.node});
+    // }
 
 }
 
