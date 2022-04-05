@@ -3,7 +3,6 @@ const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 const Card = @import("Card.zig").Card;
-const Trible = @import("Trible.zig").Trible;
 
 const mem = std.mem;
 
@@ -17,7 +16,7 @@ pub fn init() void {
     std.crypto.random.bytes(&instance_secret);
 }
 
-const Hash = extern struct {
+pub const Hash = extern struct {
     data: [16]u8,
 
     pub fn xor(left: Hash, right: Hash) Hash { // TODO make this vector SIMD stuff?
@@ -35,7 +34,7 @@ const Hash = extern struct {
 // const Vector = std.meta.Vector;
 // const Hash = Vector(16, u8);
 
-fn keyHash(key: []const u8) Hash {
+pub fn keyHash(key: []const u8) Hash {
     const siphash = comptime std.hash.SipHash128(2, 4);
     var hash: Hash = undefined;
     siphash.create(&hash.data, key, &instance_secret);
@@ -1465,7 +1464,7 @@ pub const PACT = extern struct {
             };
         }
 
-        const Tree = struct {
+        pub const Tree = struct {
             child: Node = Node{ .tag = .none, .head = .{ .none = void{} } },
             allocator: std.mem.Allocator,
 
@@ -2119,109 +2118,4 @@ test "multi item tree has correct count" {
         std.debug.print("Inserted {d} of {d}:{s}\n{s}\n", .{ i + 1, total_runs, std.fmt.fmtSliceHexUpper(&key), tree.child });
     }
     try expectEqual(tree.count(), total_runs);
-}
-
-const time = std.time;
-
-//                        | <------ 48 bit -------->|
-// kernel space: | 1....1 | significant | alignment |
-// user space:   | 0....1 | significant | alignemnt |
-
-// 8:tag = 0 | 56:suffix
-// 8:tag = 1 | 8:infix | 48:leaf ptr
-// 8:tag = 2 | 8:infix | 48:inner ptr
-
-const benchmark_size: usize = 100000;
-const change_prob = 0.1;
-
-test "benchmark" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = general_purpose_allocator.deinit();
-    const gpa = general_purpose_allocator.allocator();
-
-    var timer = try time.Timer.start();
-    var t_total: u64 = 0;
-
-    var rnd = std.rand.DefaultPrng.init(0).random();
-
-    var tree = PACT.Tree.init(gpa);
-    defer tree.deinit();
-
-    std.debug.print("Inserting {d} tribles into PACT.\n", .{benchmark_size});
-
-    var i: u64 = 0;
-    var t = Trible.initAribitrary(rnd);
-    while (i < benchmark_size) : (i += 1) {
-        t = Trible.initAribitraryLike(rnd, change_prob, t);
-        //const value = rnd.int(usize);
-
-        timer.reset();
-
-        try tree.put(&t.data, null);
-
-        t_total += timer.lap();
-    }
-
-    std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
-
-    std.debug.print("{s}\n", .{tree});
-
-    // var node_iter = tree.nodes();
-    // while(node_iter.next()) |res| {
-    //      std.debug.print("Depth: {d}..{d}\n{s}\n", .{res.start_depth, res.node.depth(), res.node});
-    // }
-
-}
-
-test "benchmark hashing" {
-    var timer = try time.Timer.start();
-    var t_total: u64 = 0;
-
-    var rnd = std.rand.DefaultPrng.init(0).random();
-
-    std.debug.print("Hashing {d} tribles.\n", .{benchmark_size});
-
-    var i: u64 = 0;
-    var t = Trible.initAribitrary(rnd);
-    while (i < benchmark_size) : (i += 1) {
-        t = Trible.initAribitraryLike(rnd, change_prob, t);
-
-        timer.reset();
-
-        _ = keyHash(&t.data);
-
-        t_total += timer.lap();
-    }
-
-    std.debug.print("Hashed {d} in {d}ns\n", .{ benchmark_size, t_total });
-}
-
-test "benchmark std" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.allocator();
-
-    var timer = try time.Timer.start();
-    var t_total: u64 = 0;
-
-    var rnd = std.rand.DefaultPrng.init(0).random();
-
-    var map = std.hash_map.AutoHashMap(Trible, ?usize).init(gpa);
-    defer map.deinit();
-
-    std.debug.print("Inserting {d} tribles into AutoHashMap.\n", .{benchmark_size});
-
-    var i: u64 = 0;
-    var t = Trible.initAribitrary(rnd);
-    while (i < benchmark_size) : (i += 1) {
-        t = Trible.initAribitraryLike(rnd, change_prob, t);
-        //const value = rnd.int(usize);
-
-        timer.reset();
-
-        try map.put(t, null);
-
-        t_total += timer.lap();
-    }
-
-    std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
 }
