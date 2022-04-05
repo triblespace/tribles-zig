@@ -51,7 +51,7 @@ const HASH_COUNT = 2;
 
 /// The maximum number of cuckoo displacements atempted during
 /// insert before the size of the table is increased.
-const MAX_ATTEMPTS = 8;
+const MAX_ATTEMPTS = 4;
 
 /// A byte -> byte lookup table used in hashes as permutations.
 const Byte_LUT = [256]u8;
@@ -2131,7 +2131,8 @@ const time = std.time;
 // 8:tag = 1 | 8:infix | 48:leaf ptr
 // 8:tag = 2 | 8:infix | 48:inner ptr
 
-const benchmark_size: usize = 10000;
+const benchmark_size: usize = 100000;
+const change_prob = 0.1;
 
 test "benchmark" {
     var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
@@ -2151,7 +2152,7 @@ test "benchmark" {
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
     while (i < benchmark_size) : (i += 1) {
-        t = Trible.initAribitraryLike(rnd, 0.2, t);
+        t = Trible.initAribitraryLike(rnd, change_prob, t);
         //const value = rnd.int(usize);
 
         timer.reset();
@@ -2183,7 +2184,7 @@ test "benchmark hashing" {
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
     while (i < benchmark_size) : (i += 1) {
-        t = Trible.initAribitraryLike(rnd, 0.2, t);
+        t = Trible.initAribitraryLike(rnd, change_prob, t);
 
         timer.reset();
 
@@ -2212,7 +2213,7 @@ test "benchmark std" {
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
     while (i < benchmark_size) : (i += 1) {
-        t = Trible.initAribitraryLike(rnd, 0.2, t);
+        t = Trible.initAribitraryLike(rnd, change_prob, t);
         //const value = rnd.int(usize);
 
         timer.reset();

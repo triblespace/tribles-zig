@@ -25,13 +25,14 @@ pub const Trible = extern struct {
             const e = UFOID.initNow(rnd);
             std.mem.copy(u8, t.data[0..16], e.encode()[16..32]);
         } 
-        if(rnd.floatNorm(f32) < std.math.pow(f32, change_prob, 2)) {
+        if(rnd.floatNorm(f32) < change_prob) {
             const a = UFOID.initNow(rnd);
             std.mem.copy(u8, t.data[16..32], a.encode()[16..32]);
         }
-
-        const v = UFOID.initNow(rnd);
-        std.mem.copy(u8, t.data[32..64], v.encode()[0..32]);
+        if(rnd.floatNorm(f32) < change_prob) {
+            const v = UFOID.initNow(rnd);
+            std.mem.copy(u8, t.data[32..64], v.encode()[0..32]);
+        }
 
         return t;
     }
