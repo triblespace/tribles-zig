@@ -364,6 +364,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
             }
 
             pub fn hash(self: Node, start_depth: u8, prefix: *const [key_length]u8) Hash {
+                std.debug.print("{s}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&self))});
                 std.debug.print("{s} {d} {any}\n", .{self.tag, start_depth, prefix});
                 return switch (self.tag) {
                     .none => @panic("Called `hash` on none."),
@@ -906,8 +907,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     return self.infix[0];
                 }
 
-                pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                    if (self.branch_depth <= at_depth or at_depth < start_depth) return null;
+                pub fn peek(self: Head, start_depth: u8, at_depth: u8, prefix: *const [key_length]u8) ?u8 {
+                    if (self.branch_depth <= at_depth) return null;
+                    if (at_depth < start_depth) return prefix[at_depth];
                     if (at_depth < start_depth + head_infix_len) return self.infix[at_depth - start_depth];
                     return self.body.infix[(at_depth + @as(u8, body_infix_len)) - self.branch_depth];
                 }
@@ -926,24 +928,20 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     result_set.unsetAll();
                 }
 
-                pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+                pub fn put(self: Head, parent_depth: u8, key: *const [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                     const single_owner = parent_single_owner and self.body.ref_count == 1;
 
+                    const start_depth = @maximum(self.depth() - @minimum(self.depth(), self.range()), parent_depth);
                     var branch_depth = start_depth;
-                    var infix_index: u8 = (start_depth + @as(u8, self.body.infix.len)) - self.branch_depth;
-                    while (branch_depth < self.branch_depth) : ({
-                        branch_depth += 1;
-                        infix_index += 1;
-                    }) {
-                        const infix = self.body.infix;
-                        if (key[branch_depth] != infix[infix_index]) break;
+                    while (branch_depth < self.branch_depth) : (branch_depth += 1) {
+                        if (key[branch_depth] != self.peek(start_depth, branch_depth).?) break;
                     } else {
                         // The entire compressed infix above this node matched with the key.
                         const byte_key = key[branch_depth];
                         if (self.cuckooHas(byte_key)) {
                             // The node already has a child branch with the same byte byte_key as the one in the key.
                             const old_child = self.cuckooGet(byte_key);
-                            const old_child_hash = old_child.hash(self.branch_depth, key);
+                            const old_child_hash: Hash = old_child.hash(self.branch_depth, key);
                             const old_child_count = old_child.count();
                             const old_child_segment_count = 1; // TODO old_child.segmentCount(branch_depth);
                             const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
@@ -1174,7 +1172,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
 
                     new_body.* = Body{ .child = child };
 
-
                     const body_infix_length = @minimum(child_depth, body_infix_len);
                     const body_infix_start = body_infix_len - body_infix_length;
                     const body_key_start = child_depth - body_infix_length;
@@ -1185,6 +1182,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     const head_infix_length = @minimum(child_depth - start_depth, head_infix_len);
                     const key_end = start_depth + head_infix_length;
                     mem.copy(u8, new_head.infix[0..head_infix_length], key[start_depth..key_end]);
+
+                    std.debug.print("{s}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&new_body.child))});
 
                     return new_head;
                 }
@@ -1215,6 +1214,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         new_body.child = new_child;
                     }
 
+                    std.debug.print("{s}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&new_body.child))});
+
                     return Head{ .child_depth = self.child_depth, .infix = self.infix, .body = new_body };
                 }
 
@@ -1231,6 +1232,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn rel(self: Head, allocator: std.mem.Allocator) void {
                     self.body.ref_count -= 1;
                     if (self.body.ref_count == 0) {
+
+                        std.debug.print("Infix dealloc!\n", .{});
+
                         self.body.child.rel(allocator);
                         allocator.free(std.mem.asBytes(self.body));
                     }
@@ -1261,8 +1265,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     return self.infix[0];
                 }
 
-                pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                    if (self.child_depth <= at_depth or at_depth < start_depth) return null;
+                pub fn peek(self: Head, start_depth: u8, at_depth: u8, prefix: *const [key_length]u8) ?u8 {
+                    if (self.child_depth <= at_depth ) return null;
+                    if (at_depth < start_depth) return prefix[at_depth];
                     if (at_depth < start_depth + head_infix_len) return self.infix[at_depth - start_depth];
                     return self.body.infix[(at_depth + @as(u8, body_infix_len)) - self.child_depth];
                 }
@@ -1293,9 +1298,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     return Node.none;
                 }
 
-                pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
-                    _ = single_owner;
-                    if (body_infix_len == 0) unreachable;
+                pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+                    const single_owner = parent_single_owner and self.body.ref_count == 1;
 
                     var branch_depth = start_depth;
                     while (branch_depth < self.child_depth) : (branch_depth += 1) {
@@ -1303,7 +1307,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     } else {
                         const old_child = self.body.child;
                         const old_child_hash = old_child.hash(self.child_depth, key);
-                        const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
+                        const new_child = try old_child.put(start_depth, key, value, single_owner, allocator);
                         const new_child_hash = new_child.hash(branch_depth, key);
                         if (Hash.equal(old_child_hash, new_child_hash)) { //TODO could these be replaced by pointer comparisons?
                             return Node.from(Head, self);
@@ -1313,9 +1317,6 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                         const child_range = new_child.range();
 
                         if(child_depth <= start_depth + child_range) {
-                            if (single_owner) {
-                                allocator.free(std.mem.asBytes(self.body));
-                            }
                             return new_child;
                         }
 
@@ -1329,6 +1330,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                             byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
                         }
                         self_or_copy.body.child = new_child;
+                        
+                        std.debug.print("{s}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&self_or_copy.body.child))});
+
                         return Node.from(Head, self_or_copy);
                     }
 
@@ -1431,8 +1435,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 return self.suffix[0];
             }
 
-            pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                if (at_depth < start_depth or key_length <= at_depth) return null;
+            pub fn peek(self: Head, start_depth: u8, at_depth: u8, prefix: *const [key_length]u8) ?u8 {
+                if (key_length <= at_depth) return null;
+                if (at_depth < start_depth) return prefix[at_depth];
                 return self.suffix[at_depth - start_depth];
             }
 
@@ -1452,9 +1457,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 return Node.none;
             }
 
-            pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            pub fn put(self: Head, parent_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                 _ = single_owner;
 
+                const start_depth = @maximum(self.depth() - self.range(), parent_depth);
                 var branch_depth = start_depth;
                 while (branch_depth < key_length) : (branch_depth += 1) {
                     if (key[branch_depth] != self.peek(start_depth, branch_depth).?) break;
@@ -1465,15 +1471,15 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var recycled_self = self;
 
                 const new_branch_node_above = try BranchNode(1).init(start_depth, branch_depth, key, allocator);
-                const sibling_leaf_node = InitLeafOrTwigNode(branch_depth, key, value);
+                const sibling_node = InitLeafOrTwigNode(branch_depth, key, value);
 
                 for (recycled_self.suffix) |*byte, i| {
                     byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
                 }
 
                 _ = try new_branch_node_above.cuckooPut(Node.from(Head, recycled_self), allocator); // We know that these can't fail and won't reallocate.
-                _ = try new_branch_node_above.cuckooPut(sibling_leaf_node, allocator);
-                new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_leaf_node.hash(branch_depth, key));
+                _ = try new_branch_node_above.cuckooPut(sibling_node, allocator);
+                new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_node.hash(branch_depth, key));
                 new_branch_node_above.body.leaf_count = 2;
                 new_branch_node_above.body.segment_count = 2;
 
@@ -1551,8 +1557,9 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 return self.suffix[0];
             }
 
-            pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-                if (at_depth < start_depth or key_length <= at_depth) return null;
+            pub fn peek(self: Head, start_depth: u8, at_depth: u8, prefix: *const [key_length]u8) ?u8 {
+                if (key_length <= at_depth) return null;
+                if (at_depth < start_depth ) return prefix[at_depth];
                 return self.suffix[at_depth - start_depth];
             }
 
@@ -1572,9 +1579,10 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 return Node.none;
             }
 
-            pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            pub fn put(self: Head, parent_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                 _ = single_owner;
 
+                const start_depth = @maximum(self.depth() - self.range(), parent_depth);
                 var branch_depth = start_depth;
                 while (branch_depth < key_length) : (branch_depth += 1) {
                     if (key[branch_depth] != self.peek(start_depth, branch_depth).?) break;
@@ -1585,15 +1593,15 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 var recycled_self = self;
 
                 const new_branch_node_above = try BranchNode(1).init(start_depth, branch_depth, key, allocator);
-                const sibling_leaf_node = InitLeafOrTwigNode(branch_depth, key, value);
+                const sibling_node = InitLeafOrTwigNode(branch_depth, key, value);
 
                 for (recycled_self.suffix) |*byte, i| {
                     byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
                 }
 
                 _ = try new_branch_node_above.cuckooPut(Node.from(Head, recycled_self), allocator); // We know that these can't fail and won't reallocate.
-                _ = try new_branch_node_above.cuckooPut(sibling_leaf_node, allocator);
-                new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_leaf_node.hash(branch_depth, key));
+                _ = try new_branch_node_above.cuckooPut(sibling_node, allocator);
+                new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_node.hash(branch_depth, key));       
                 new_branch_node_above.body.leaf_count = 2;
                 new_branch_node_above.body.segment_count = 2;
 
@@ -2210,9 +2218,9 @@ const time = std.time;
 const benchmark_size: usize = 50;
 
 test "benchmark" {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = general_purpose_allocator.deinit();
-    const gpa = general_purpose_allocator.allocator();
+    //var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
+    //defer _ = general_purpose_allocator.deinit();
+    //const gpa = general_purpose_allocator.allocator();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
@@ -2220,7 +2228,7 @@ test "benchmark" {
     var rnd = std.rand.DefaultPrng.init(0).random();
 
     const PACT = makePACT(Trible.size, usize);
-    var tree = PACT.Tree.init(gpa);
+    var tree = PACT.Tree.init(std.testing.allocator);
     defer tree.deinit();
 
     std.debug.print("Inserting {d} tribles into PACT.\n", .{benchmark_size});
