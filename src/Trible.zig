@@ -1,6 +1,6 @@
 const std = @import("std");
 
-const UFOID = @import("ufoid.zig").UFOID;
+const UFOID = @import("UFOID.zig").UFOID;
 
 pub const Trible = extern struct {
     pub const size = 64;
