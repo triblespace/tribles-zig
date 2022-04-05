@@ -963,7 +963,7 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                 pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
                     if (self.branch_depth <= at_depth or at_depth < start_depth) return null;
                     if (at_depth < start_depth + head_infix_len) return self.infix[at_depth - start_depth];
-                    return self.body.infix[(start_depth + @as(u8, self.body.infix.len)) - self.branch_depth];
+                    return self.body.infix[(at_depth + @as(u8, self.body.infix.len)) - self.branch_depth];
                 }
 
                 pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
@@ -984,13 +984,8 @@ pub fn makePACT(comptime key_length: u8, comptime T: type) type {
                     const single_owner = parent_single_owner and self.body.ref_count == 1;
 
                     var branch_depth = start_depth;
-                    var infix_index: u8 = (start_depth + @as(u8, self.body.infix.len)) - self.branch_depth;
-                    while (branch_depth < self.branch_depth) : ({
-                        branch_depth += 1;
-                        infix_index += 1;
-                    }) {
-                        const infix = self.body.infix;
-                        if (key[branch_depth] != infix[infix_index]) break;
+                    while (branch_depth < self.branch_depth) : (branch_depth += 1) {
+                        if (key[branch_depth] != self.peek(start_depth, branch_depth).?) break;
                     } else {
                         // The entire compressed infix above this node matched with the key.
                         const byte_key = key[branch_depth];
