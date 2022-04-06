@@ -47,9 +47,9 @@ pub const Trible = extern struct {
         _ = fmt;
         _ = options;
         try writer.print("{32s:_>[0]}|{32s:_>[1]}|{64s:_>[2]}", .{
-            std.fmt.fmtSliceHexUpper(&self.data[0..16]),
-            std.fmt.fmtSliceHexUpper(&self.data[16..32]),
-            std.fmt.fmtSliceHexUpper(&self.data[32..64])});
+            std.fmt.fmtSliceHexUpper(self.data[0..16]),
+            std.fmt.fmtSliceHexUpper(self.data[16..32]),
+            std.fmt.fmtSliceHexUpper(self.data[32..64])});
     }
 
     pub fn initWithData(data: [size]u8) Trible {
