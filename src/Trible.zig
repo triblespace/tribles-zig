@@ -37,6 +37,21 @@ pub const Trible = extern struct {
         return t;
     }
 
+    pub fn format(
+        self: Trible,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = self;
+        _ = fmt;
+        _ = options;
+        try writer.print("{32s:_>[0]}|{32s:_>[1]}|{64s:_>[2]}", .{
+            std.fmt.fmtSliceHexUpper(&self.data[0..16]),
+            std.fmt.fmtSliceHexUpper(&self.data[16..32]),
+            std.fmt.fmtSliceHexUpper(&self.data[32..64])});
+    }
+
     pub fn initWithData(data: [size]u8) Trible {
         return Trible{.data = data};
     }

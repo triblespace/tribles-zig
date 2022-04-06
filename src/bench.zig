@@ -43,6 +43,7 @@ pub fn benchmark() !void {
         timer.reset();
 
         try tree.put(&t.data, null);
+        std.debug.print("{s}\n", .{ t });
         coz.progress();
 
         t_total += timer.lap();
