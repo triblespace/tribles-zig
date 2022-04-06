@@ -1,17 +1,7 @@
-#include <coz.h>
+extern void cozBegin(const char* name);
 
-void cozBegin(const char* name) {
-    COZ_BEGIN(name);
-}
+extern void cozEnd(const char* name);
 
-void cozEnd(const char* name) {
-    COZ_END(name);
-}
+extern void cozProgressNamed(const char* name);
 
-void cozProgressNamed(const char* name) {
-    COZ_PROGRESS_NAMED(name);
-}
-
-void cozProgress() {
-    COZ_PROGRESS;
-}
+extern void cozProgress();
