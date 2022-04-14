@@ -23,16 +23,18 @@ pub fn main() !void {
 }
 
 pub fn benchmark() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    defer _ = general_purpose_allocator.deinit();
-    const gpa = general_purpose_allocator.allocator();
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer _ = arena.deinit();
+    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
+    //defer _ = gp.deinit();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(gpa);
+    var tree = PACT.Tree.init(arena.allocator());
+    //var tree = PACT.Tree.init(gp.allocator());
     defer tree.deinit();
 
     //std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
@@ -54,7 +56,7 @@ pub fn benchmark() !void {
     }
     coz.end("insert");
 
-    //std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
+    std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
 
     //std.debug.print("{s}\n", .{tree});
 
