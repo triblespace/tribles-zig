@@ -3,4 +3,5 @@ zig-cache
 *.o
 .vscode
 zig-out
+*.coz
 
