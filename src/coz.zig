@@ -10,10 +10,6 @@ pub fn end(name: [:0]const u8) void {
     c.cozEnd(name);
 }
 
-pub fn progressNamed(name: [:0]const u8) void {
+pub fn progress(name: [:0]const u8) void {
     c.cozProgressNamed(name);
-}
-
-pub fn progress() void {
-    c.cozProgress();
 }

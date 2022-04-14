@@ -38,6 +38,7 @@ pub fn keyHash(key: []const u8) Hash {
     const siphash = comptime std.hash.SipHash128(2, 4);
     var hash: Hash = undefined;
     siphash.create(&hash.data, key, &instance_secret);
+
     return hash;
 }
 
@@ -168,8 +169,6 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
     return lut;
 }
 
-/// Define a PACT datastructure with the given parameters.
-pub const PACT = extern struct {
         pub const key_length = 64;
         pub const T = u64;
 
@@ -987,6 +986,7 @@ pub const PACT = extern struct {
                             const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
                             const new_child_hash = new_child.hash(branch_depth, key);
                             if (Hash.equal(old_child_hash, new_child_hash)) {
+                                std.debug.print("Key already in tree. Hash is equal.\n{s}\n{s}\n", .{std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data)});
                                 return Node.from(Head, self);
                             }
                             const new_hash = Hash.xor(Hash.xor(self.body.child_sum_hash, old_child_hash), new_child_hash);
@@ -1480,7 +1480,7 @@ pub const PACT = extern struct {
                     key: [key_length]u8,
                 };
 
-                fn next(self: *NodeIterator) ?IterationResult {
+                pub fn next(self: *NodeIterator) ?IterationResult {
                     var start_depth = self.start_points.findLastSet() orelse return null;
                     var node = self.path[start_depth];
 
@@ -1515,7 +1515,7 @@ pub const PACT = extern struct {
                 }
             };
 
-            fn nodes(self: *const Tree) NodeIterator {
+            pub fn nodes(self: *const Tree) NodeIterator {
                 var iterator = NodeIterator{};
                 if (self.child.tag != .none) {
                     iterator.start_points.set(0);
@@ -2031,16 +2031,15 @@ pub const PACT = extern struct {
             //   }
             // }
         };
-};
 
 test "Alignment" {
-    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(1), @alignOf(PACT.InnerNode(1).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(2), @alignOf(PACT.InnerNode(2).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(4), @alignOf(PACT.InnerNode(4).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(8), @alignOf(PACT.InnerNode(8).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(16), @alignOf(PACT.InnerNode(16).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(32), @alignOf(PACT.InnerNode(32).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ PACT.InnerNode(64), @alignOf(PACT.InnerNode(64).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ InnerNode(1), @alignOf(InnerNode(1).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ InnerNode(2), @alignOf(InnerNode(2).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ InnerNode(4), @alignOf(InnerNode(4).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ InnerNode(8), @alignOf(InnerNode(8).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ InnerNode(16), @alignOf(InnerNode(16).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ InnerNode(32), @alignOf(InnerNode(32).Body) });
+    std.debug.print("Alignment: {} {}\n", .{ InnerNode(64), @alignOf(InnerNode(64).Body) });
 }
 
 test "create tree" {
@@ -2048,7 +2047,7 @@ test "create tree" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    var tree = PACT.Tree.init(gpa);
+    var tree = Tree.init(gpa);
     defer tree.deinit();
 }
 
@@ -2057,7 +2056,7 @@ test "empty tree has count 0" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    var tree = PACT.Tree.init(gpa);
+    var tree = Tree.init(gpa);
     defer tree.deinit();
 
     try expectEqual(tree.count(), 0);
@@ -2068,10 +2067,10 @@ test "single item tree has count 1" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    var tree = PACT.Tree.init(gpa);
+    var tree = Tree.init(gpa);
     defer tree.deinit();
 
-    const key: [PACT.key_length]u8 = [_]u8{0} ** PACT.key_length;
+    const key: [key_length]u8 = [_]u8{0} ** key_length;
     try tree.put(&key, 42);
 
     try expectEqual(tree.count(), 1);
@@ -2082,13 +2081,13 @@ test "immutable tree fork" {
     defer _ = general_purpose_allocator.deinit();
     const gpa = general_purpose_allocator.allocator();
 
-    var tree = PACT.Tree.init(gpa);
+    var tree = Tree.init(gpa);
     defer tree.deinit();
 
     var new_tree = try tree.fork();
     defer new_tree.deinit();
 
-    const key: [PACT.key_length]u8 = [_]u8{0} ** PACT.key_length;
+    const key: [key_length]u8 = [_]u8{0} ** key_length;
     try new_tree.put(&key, 42);
 
     try expectEqual(tree.count(), 0);
@@ -2104,10 +2103,10 @@ test "multi item tree has correct count" {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(gpa);
+    var tree = Tree.init(gpa);
     defer tree.deinit();
 
-    var key: [PACT.key_length]u8 = undefined;
+    var key: [key_length]u8 = undefined;
 
     var i: u64 = 0;
     while (i < total_runs) : (i += 1) {

@@ -5,16 +5,21 @@ const time = std.time;
 const coz = @import("./coz.zig");
 
 const Trible = @import("Trible.zig").Trible;
-const PACT = @import("./PACT.zig").PACT;
+const PACT = @import("./PACT.zig");
 const keyHash = @import("./PACT.zig").keyHash;
 
-const benchmark_size: usize = 100000;
-const change_prob = 0.1;
+const sample_size: usize = 10000;
+const data_size: usize = 100000;
+const change_prob = 0.5;
 
 pub fn main() !void {
-    try benchmark(); 
-    try benchmark_hashing();
-    try benchmark_std();
+    PACT.init();
+    var i: u64 = 0;
+    while (i < sample_size) : (i += 1) {
+        try benchmark();
+    }
+    //try benchmark_hashing();
+    //try benchmark_std();
 }
 
 pub fn benchmark() !void {
@@ -30,34 +35,33 @@ pub fn benchmark() !void {
     var tree = PACT.Tree.init(gpa);
     defer tree.deinit();
 
-    std.debug.print("Inserting {d} tribles into PACT.\n", .{benchmark_size});
+    //std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
 
     coz.begin("insert");
-    while (i < benchmark_size) : (i += 1) {
+    while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
         //const value = rnd.int(usize);
 
         timer.reset();
 
         try tree.put(&t.data, null);
-        std.debug.print("{s}\n", .{ t });
-        coz.progress();
+        coz.progress("put");
 
         t_total += timer.lap();
     }
     coz.end("insert");
 
-    std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
+    //std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
 
-    std.debug.print("{s}\n", .{tree});
+    //std.debug.print("{s}\n", .{tree});
 
-    // var node_iter = tree.nodes();
-    // while(node_iter.next()) |res| {
-    //      std.debug.print("Depth: {d}..{d}\n{s}\n", .{res.start_depth, res.node.depth(), res.node});
-    // }
+    //var node_iter = tree.nodes();
+    //while(node_iter.next()) |res| {
+    //    std.debug.print("Depth: {d}..{d}\n{s}\n", .{res.start_depth, res.node.depth(), res.node});
+    //}
 
 }
 
@@ -67,11 +71,11 @@ pub fn benchmark_hashing() !void {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    std.debug.print("Hashing {d} tribles.\n", .{benchmark_size});
+    std.debug.print("Hashing {d} tribles.\n", .{data_size});
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
-    while (i < benchmark_size) : (i += 1) {
+    while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
 
         timer.reset();
@@ -81,7 +85,7 @@ pub fn benchmark_hashing() !void {
         t_total += timer.lap();
     }
 
-    std.debug.print("Hashed {d} in {d}ns\n", .{ benchmark_size, t_total });
+    std.debug.print("Hashed {d} in {d}ns\n", .{ data_size, t_total });
 }
 
 pub fn benchmark_std() !void {
@@ -96,11 +100,11 @@ pub fn benchmark_std() !void {
     var map = std.hash_map.AutoHashMap(Trible, ?usize).init(gpa);
     defer map.deinit();
 
-    std.debug.print("Inserting {d} tribles into AutoHashMap.\n", .{benchmark_size});
+    std.debug.print("Inserting {d} tribles into AutoHashMap.\n", .{data_size});
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
-    while (i < benchmark_size) : (i += 1) {
+    while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
         //const value = rnd.int(usize);
 
@@ -111,5 +115,5 @@ pub fn benchmark_std() !void {
         t_total += timer.lap();
     }
 
-    std.debug.print("Inserted {d} in {d}ns\n", .{ benchmark_size, t_total });
+    std.debug.print("Inserted {d} in {d}ns\n", .{ data_size, t_total });
 }

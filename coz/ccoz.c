@@ -11,7 +11,3 @@ void cozEnd(const char* name) {
 void cozProgressNamed(const char* name) {
     COZ_PROGRESS_NAMED(name);
 }
-
-void cozProgress() {
-    COZ_PROGRESS;
-}
