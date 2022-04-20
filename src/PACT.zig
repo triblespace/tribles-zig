@@ -201,7 +201,7 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
             twig64,
         };
 
-        const Node = extern struct {
+        const Node = packed struct {
             head: Head,
             tag: NodeTag,
 
@@ -647,13 +647,13 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
         fn InnerNode(comptime bucket_count: u8) type {
             const head_infix_len = 6;
 
-            return extern struct {
-                /// The address of the pointer associated with the key.
-                body: *Body,
-                /// The branch depth of the body.
-                branch_depth: u8,
+            return packed struct {
                 /// The infix stored in this head.
                 infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
+                /// The branch depth of the body.
+                branch_depth: u8,
+                /// The address of the pointer associated with the key.
+                body: *Body,
 
                 const Head = @This();
 
@@ -1192,7 +1192,7 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
             unreachable;
         }
 
-        const InlineLeafNode = extern struct {
+        const InlineLeafNode = packed struct {
             const head_suffix_len = 15;
 
             /// The key stored in this entry.
@@ -1309,11 +1309,11 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
         fn LeafNode(comptime no_value: bool, comptime suffix_len: u8) type {
             const head_suffix_len = 7;
             const body_suffix_len = suffix_len - head_suffix_len;
-            return extern struct {
-                /// The address of the pointer associated with the key.
-                body: *Body,
+            return packed struct {
                 /// The key stored in this entry.
                 suffix: [head_suffix_len]u8 = [_]u8{0} ** head_suffix_len,
+                /// The address of the pointer associated with the key.
+                body: *Body,
 
                 const Head = @This();
                 const Body = if (no_value) extern struct {
@@ -2032,14 +2032,23 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
             // }
         };
 
-test "Alignment" {
-    std.debug.print("Alignment: {} {}\n", .{ InnerNode(1), @alignOf(InnerNode(1).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ InnerNode(2), @alignOf(InnerNode(2).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ InnerNode(4), @alignOf(InnerNode(4).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ InnerNode(8), @alignOf(InnerNode(8).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ InnerNode(16), @alignOf(InnerNode(16).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ InnerNode(32), @alignOf(InnerNode(32).Body) });
-    std.debug.print("Alignment: {} {}\n", .{ InnerNode(64), @alignOf(InnerNode(64).Body) });
+test "Alignment & Size" {
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ Node, @sizeOf(Node), @alignOf(Node) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ Node.Head, @sizeOf(Node.Head), @alignOf(Node.Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(1).Head, @sizeOf(InnerNode(1).Head), @alignOf(InnerNode(1).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(2).Head, @sizeOf(InnerNode(2).Head), @alignOf(InnerNode(2).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(4).Head, @sizeOf(InnerNode(4).Head), @alignOf(InnerNode(4).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(8).Head, @sizeOf(InnerNode(8).Head), @alignOf(InnerNode(8).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(16).Head, @sizeOf(InnerNode(16).Head), @alignOf(InnerNode(16).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(32).Head, @sizeOf(InnerNode(32).Head), @alignOf(InnerNode(32).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(64).Head, @sizeOf(InnerNode(64).Head), @alignOf(InnerNode(64).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(1), @sizeOf(InnerNode(1).Body), @alignOf(InnerNode(1).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(2), @sizeOf(InnerNode(2).Body), @alignOf(InnerNode(2).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(4), @sizeOf(InnerNode(4).Body), @alignOf(InnerNode(4).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(8), @sizeOf(InnerNode(8).Body), @alignOf(InnerNode(8).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(16), @sizeOf(InnerNode(16).Body), @alignOf(InnerNode(16).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(32), @sizeOf(InnerNode(32).Body), @alignOf(InnerNode(32).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(64), @sizeOf(InnerNode(64).Body), @alignOf(InnerNode(64).Body) });
 }
 
 test "create tree" {

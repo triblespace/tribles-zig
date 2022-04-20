@@ -8,8 +8,8 @@ const Trible = @import("Trible.zig").Trible;
 const PACT = @import("./PACT.zig");
 const keyHash = @import("./PACT.zig").keyHash;
 
-const sample_size: usize = 10000;
-const data_size: usize = 100000;
+const sample_size: usize = 1;
+const data_size: usize = 1000000;
 const change_prob = 0.5;
 
 pub fn main() !void {
