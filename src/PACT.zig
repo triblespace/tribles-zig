@@ -1414,8 +1414,12 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
 
                 pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
                     if (at_depth < start_depth or key_length <= at_depth) return null;
-                    if (at_depth < start_depth + head_suffix_len) return self.suffix[at_depth - start_depth];
-                    return self.body.suffix[at_depth - (key_length - body_suffix_len)];
+                    if (at_depth < start_depth + head_suffix_len) {
+                        const head_suffix_depth = at_depth - start_depth;
+                        return self.suffix[head_suffix_depth];
+                    }
+                    const body_suffix_depth = at_depth - (key_length - body_suffix_len);
+                    return self.body.suffix[body_suffix_depth];
                 }
 
                 pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
