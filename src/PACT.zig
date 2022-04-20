@@ -648,12 +648,12 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
             const head_infix_len = 6;
 
             return packed struct {
-                /// The infix stored in this head.
-                infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
-                /// The branch depth of the body.
-                branch_depth: u8,
                 /// The address of the pointer associated with the key.
                 body: *Body,
+                /// The branch depth of the body.
+                branch_depth: u8,
+                /// The infix stored in this head.
+                infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
 
                 const Head = @This();
 
@@ -1310,10 +1310,10 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
             const head_suffix_len = 7;
             const body_suffix_len = suffix_len - head_suffix_len;
             return packed struct {
-                /// The key stored in this entry.
-                suffix: [head_suffix_len]u8 = [_]u8{0} ** head_suffix_len,
                 /// The address of the pointer associated with the key.
                 body: *Body,
+                /// The key stored in this entry.
+                suffix: [head_suffix_len]u8 = [_]u8{0} ** head_suffix_len,
 
                 const Head = @This();
                 const Body = if (no_value) extern struct {
