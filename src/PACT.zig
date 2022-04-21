@@ -272,11 +272,6 @@ const Node = extern union {
         };
     }
 
-    // pub fn from(comptime variantType: type, variant: anytype) Node {
-    //     _ = variantType;
-    //     @as()
-    // }
-
     pub fn format(
         self: Node,
         comptime fmt: []const u8,
