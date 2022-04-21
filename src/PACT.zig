@@ -1491,7 +1491,7 @@ pub const Tree = struct {
                     if (branches.drainNext(true)) |branch_key| {
                         self.start_points.set(exhausted_depth);
                         self.path[exhausted_depth] = self.path[parent_depth].get(parent_depth, exhausted_depth, branch_key);
-                        assert(self.path[exhausted_depth].tag != .none);
+                        assert(self.path[exhausted_depth].unknown.tag != .none);
                         break;
                     } else {
                         exhausted_depth = self.start_points.drainNext(false).?;
@@ -1514,7 +1514,7 @@ pub const Tree = struct {
 
     pub fn nodes(self: *const Tree) NodeIterator {
         var iterator = NodeIterator{};
-        if (self.child.tag != .none) {
+        if (self.child.unknown.tag != .none) {
             iterator.start_points.set(0);
             iterator.path[0] = self.child;
         }
@@ -1609,7 +1609,7 @@ pub const Tree = struct {
         var node_iter = self.nodes();
         while (node_iter.next()) |res| {
             density_at_depth[res.start_depth] += 1;
-            switch (res.node.tag) {
+            switch (res.node.unknown.tag) {
                 .none => none_count += 1,
                 .inner1 => inner_1_count += 1,
                 .inner2 => inner_2_count += 1,
