@@ -260,7 +260,7 @@ const Node = extern union {
             64 => NodeTag.twig64,
             else => @panic("Bad suffix count for twig tag."),
         } else switch (suffix_len) {
-            8  => NodeTag.leaf8,
+            8 => NodeTag.leaf8,
             16 => NodeTag.leaf16,
             24 => NodeTag.leaf24,
             32 => NodeTag.leaf32,
@@ -677,7 +677,7 @@ fn InnerNode(comptime bucket_count: u8) type {
             const Bucket = extern struct {
                 const SLOT_COUNT = 4;
 
-                slots: [SLOT_COUNT]Node = [_]Node{Node{ .none = .{}}} ** SLOT_COUNT,
+                slots: [SLOT_COUNT]Node = [_]Node{Node{ .none = .{} }} ** SLOT_COUNT,
 
                 pub fn get(self: *const Bucket, byte_key: u8) Node {
                     for (self.slots) |slot| {
@@ -915,6 +915,18 @@ fn InnerNode(comptime bucket_count: u8) type {
             return new_head;
         }
 
+        pub fn initBranch(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
+            const branch_node = try InnerNode(bucket_count).init(start_depth, branch_depth, key, allocator);
+
+            _ = try branch_node.cuckooPut(left, allocator); // We know that these can't fail and won't reallocate.
+            _ = try branch_node.cuckooPut(right, allocator);
+
+            branch_node.body.child_sum_hash = Hash.xor(left.hash(branch_depth, key), right.hash(branch_depth, key));
+            branch_node.body.leaf_count = left.count() + right.count();
+
+            return @bitCast(Node, branch_node);
+        }
+
         pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
             if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
                 // Reference counter exhausted, we need to make a copy of this node.
@@ -1020,21 +1032,14 @@ fn InnerNode(comptime bucket_count: u8) type {
                 }
             }
 
-            const new_branch_node_above = try InnerNode(1).init(start_depth, branch_depth, key, allocator); // TODO add check for infix length
-            const new_sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
-
             var recycled_self = self;
             for (recycled_self.infix) |*byte, i| {
                 byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
             }
 
-            _ = try new_branch_node_above.cuckooPut(@bitCast(Node, recycled_self), allocator); // We know that these can't fail and won't reallocate.
-            _ = try new_branch_node_above.cuckooPut(new_sibling_leaf_node, allocator);
+            const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
 
-            new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.body.child_sum_hash, new_sibling_leaf_node.hash(branch_depth, key));
-            new_branch_node_above.body.leaf_count = recycled_self.body.leaf_count + 1;
-
-            return @bitCast(Node, new_branch_node_above);
+            return try InnerNode(1).initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
         }
 
         pub fn get(self: Head, start_depth: u8, at_depth: u8, byte_key: u8) Node {
@@ -1294,19 +1299,13 @@ const InlineLeafNode = extern struct {
 
         var recycled_self = self;
 
-        const new_branch_node_above = try InnerNode(1).init(start_depth, branch_depth, key, allocator);
-        const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
-
         for (recycled_self.suffix) |*byte, i| {
             byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
         }
 
-        _ = try new_branch_node_above.cuckooPut(@bitCast(Node, recycled_self), allocator); // We know that these can't fail and won't reallocate.
-        _ = try new_branch_node_above.cuckooPut(sibling_leaf_node, allocator);
-        new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_leaf_node.hash(branch_depth, key));
-        new_branch_node_above.body.leaf_count = 2;
+        const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
 
-        return @bitCast(Node, new_branch_node_above);
+        return try InnerNode(1).initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
     }
 };
 
@@ -1452,20 +1451,13 @@ fn LeafNode(comptime no_value: bool, comptime suffix_len: u8) type {
             }
 
             var recycled_self = self;
-
-            const new_branch_node_above = try InnerNode(1).init(start_depth, branch_depth, key, allocator);
-            const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
-
             for (recycled_self.suffix) |*byte, i| {
                 byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
             }
 
-            _ = try new_branch_node_above.cuckooPut(@bitCast(Node, recycled_self), allocator); // We know that these can't fail and won't reallocate.
-            _ = try new_branch_node_above.cuckooPut(sibling_leaf_node, allocator);
-            new_branch_node_above.body.child_sum_hash = Hash.xor(recycled_self.hash(branch_depth, key), sibling_leaf_node.hash(branch_depth, key));
-            new_branch_node_above.body.leaf_count = 2;
+            const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
 
-            return @bitCast(Node, new_branch_node_above);
+            return try InnerNode(1).initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
         }
     };
 }
