@@ -599,6 +599,34 @@ const Node = extern union {
             .twig64 => self.twig64.put(start_depth, key, value, single_owner, allocator),
         };
     }
+
+    fn cuckooPut(self: Node, node: Node) ?Node {
+        return switch (self.unknown.tag) {
+            .inner1 => self.inner1.cuckooPut(node),
+            .inner2 => self.inner2.cuckooPut(node),
+            .inner4 => self.inner4.cuckooPut(node),
+            .inner8 => self.inner8.cuckooPut(node),
+            .inner16 => self.inner16.cuckooPut(node),
+            .inner32 => self.inner32.cuckooPut(node),
+            .inner64 => self.inner64.cuckooPut(node),
+            .none => @panic("Called `cuckooPut` on none."),
+            else => @panic("Called `cuckooPut` on non-inner node."),
+        };
+    }
+
+    fn grow(self: Node, allocator: std.mem.Allocator) allocError!Node {
+        return switch (self.unknown.tag) {
+            .inner1 => self.inner1.grow(allocator),
+            .inner2 => self.inner2.grow(allocator),
+            .inner4 => self.inner4.grow(allocator),
+            .inner8 => self.inner8.grow(allocator),
+            .inner16 => self.inner16.grow(allocator),
+            .inner32 => self.inner32.grow(allocator),
+            .inner64 => self.inner64.grow(allocator),
+            .none => @panic("Called `grow` on none."),
+            else => @panic("Called `grow` on non-inner node."),
+        };
+    }
 };
 
 const rand_lut = blk: {
@@ -918,8 +946,8 @@ fn InnerNode(comptime bucket_count: u8) type {
         pub fn initBranch(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
             const branch_node = try InnerNode(bucket_count).init(start_depth, branch_depth, key, allocator);
 
-            _ = try branch_node.cuckooPut(left, allocator); // We know that these can't fail and won't reallocate.
-            _ = try branch_node.cuckooPut(right, allocator);
+            _ = branch_node.cuckooPut(left); // We know that these can't fail.
+            _ = branch_node.cuckooPut(right);
 
             branch_node.body.child_sum_hash = Hash.xor(left.hash(branch_depth, key), right.hash(branch_depth, key));
             branch_node.body.leaf_count = left.count() + right.count();
@@ -1028,7 +1056,20 @@ fn InnerNode(comptime bucket_count: u8) type {
                     self_or_copy.body.child_sum_hash = new_hash;
                     self_or_copy.body.leaf_count = new_count;
 
-                    return try self_or_copy.cuckooPut(new_child_node, allocator);
+                    var displaced = self_or_copy.cuckooPut(new_child_node);
+                    if(displaced) |_| {
+                        var buff = self_or_copy.body.buffer;
+
+                        var grown = @bitCast(Node, self_or_copy);
+                        while(displaced) |entry| {
+                            grown = try grown.grow(allocator);
+                            displaced = grown.cuckooPut(entry);
+                        }
+                        _ = buff;
+                        return grown;
+                    }
+
+                    return @bitCast(Node, self_or_copy);
                 }
             }
 
@@ -1075,20 +1116,20 @@ fn InnerNode(comptime bucket_count: u8) type {
             return new_head;
         }
 
-        fn grow(self: Head, allocator: std.mem.Allocator) allocError!GrownHead {
+        fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
             if (bucket_count == max_bucket_count) {
-                return self;
+                return @bitCast(Node, self);
             } else {
                 //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
                 const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                 const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
                 //std.debug.print("Growed:{*}\n", .{new_body});
                 new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
-                return GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body };
+                return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body });
             }
         }
 
-        fn cuckooPut(self: Head, node: Node, allocator: std.mem.Allocator) allocError!Node {
+        fn cuckooPut(self: Head, node: Node) ?Node {
             var byte_key = node.peekFirst();
             self.body.child_set.set(byte_key);
 
@@ -1103,12 +1144,11 @@ fn InnerNode(comptime bucket_count: u8) type {
 
                 if (self.body.buckets[bucket_index].put(&self.body.rand_hash_used, bucket_count, bucket_index, entry)) {
                     self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
-                    return @bitCast(Node, self);
+                    return null;
                 }
 
                 if (base_size or attempts == MAX_ATTEMPTS) {
-                    const grown = try self.grow(allocator);
-                    return grown.cuckooPut(entry, allocator);
+                    return entry;
                 }
 
                 if (growable) {
