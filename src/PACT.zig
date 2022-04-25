@@ -670,7 +670,7 @@ const HLL = extern struct {
 
 fn InnerNode(comptime bucket_count: u8) type {
     const head_infix_len = 6;
-    const buffer_size = max_bucket_count - bucket_count;
+    //const buffer_size = max_bucket_count - bucket_count;
 
     return extern struct {
         tag: NodeTag = Node.innerNodeTag(bucket_count),
@@ -697,10 +697,10 @@ fn InnerNode(comptime bucket_count: u8) type {
             child_set: ByteBitset = ByteBitset.initEmpty(),
             rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
             buckets: Buckets = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
-            buffer: Buffer = undefined,
+            //buffer: Buffer = undefined,
 
             const Buckets = [bucket_count]Bucket;
-            const Buffer = [buffer_size][key_length]u8;
+            //const Buffer = [buffer_size][key_length]u8;
 
             const Bucket = extern struct {
                 const SLOT_COUNT = 4;
@@ -1058,14 +1058,14 @@ fn InnerNode(comptime bucket_count: u8) type {
 
                     var displaced = self_or_copy.cuckooPut(new_child_node);
                     if(displaced) |_| {
-                        var buff = self_or_copy.body.buffer;
+                        //var buff = self_or_copy.body.buffer;
 
                         var grown = @bitCast(Node, self_or_copy);
                         while(displaced) |entry| {
                             grown = try grown.grow(allocator);
                             displaced = grown.cuckooPut(entry);
                         }
-                        _ = buff;
+                        //_ = buff;
                         return grown;
                     }
 
