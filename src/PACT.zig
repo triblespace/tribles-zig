@@ -642,6 +642,7 @@ const HLL = extern struct {
 
 fn InnerNode(comptime bucket_count: u8) type {
     const head_infix_len = 6;
+    const buffer_size = max_bucket_count - bucket_count;
 
     return extern struct {
         tag: NodeTag = Node.innerNodeTag(bucket_count),
@@ -660,13 +661,18 @@ fn InnerNode(comptime bucket_count: u8) type {
 
         const Body = extern struct {
             leaf_count: u64,
-            ref_count: u64 = 1,
+            ref_count: u32 = 1,
+            buffer_count: u32 = 0,
             child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
             segment_hll: HLL = HLL.init(),
             infix: [key_length]u8,
             child_set: ByteBitset = ByteBitset.initEmpty(),
             rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
-            buckets: [bucket_count]Bucket = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
+            buckets: Buckets = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
+            buffer: Buffer = undefined,
+
+            const Buckets = [bucket_count]Bucket;
+            const Buffer = [buffer_size][key_length]u8;
 
             const Bucket = extern struct {
                 const SLOT_COUNT = 4;
@@ -909,11 +915,14 @@ fn InnerNode(comptime bucket_count: u8) type {
             return new_head;
         }
 
-        /// TODO: document this!
         pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
-            _ = allocator;
-            self.body.ref_count += 1;
-            return null;
+            if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
+                // Reference counter exhausted, we need to make a copy of this node.
+                return @bitCast(Node, try self.copy(allocator));
+            } else {
+                self.body.ref_count += 1;
+                return null;
+            }
         }
 
         pub fn rel(self: Head, allocator: std.mem.Allocator) void {
