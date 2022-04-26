@@ -614,15 +614,29 @@ const Node = extern union {
         };
     }
 
-    fn grow(self: Node, allocator: std.mem.Allocator) allocError!Node {
+    fn flush(self: Node, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Node {
         return switch (self.unknown.tag) {
-            .inner1 => self.inner1.grow(allocator),
-            .inner2 => self.inner2.grow(allocator),
-            .inner4 => self.inner4.grow(allocator),
-            .inner8 => self.inner8.grow(allocator),
-            .inner16 => self.inner16.grow(allocator),
-            .inner32 => self.inner32.grow(allocator),
-            .inner64 => self.inner64.grow(allocator),
+            .inner1 => self.inner1.flush(key, allocator),
+            .inner2 => self.inner2.flush(key, allocator),
+            .inner4 => self.inner4.flush(key, allocator),
+            .inner8 => self.inner8.flush(key, allocator),
+            .inner16 => self.inner16.flush(key, allocator),
+            .inner32 => self.inner32.flush(key, allocator),
+            .inner64 => self.inner64.flush(key, allocator),
+            .none => @panic("Called `flush` on none."),
+            else => @panic("Called `flush` on non-inner node."),
+        };
+    }
+
+    fn grow(self: Node) Node {
+        return switch (self.unknown.tag) {
+            .inner1 => self.inner1.grow(),
+            .inner2 => self.inner2.grow(),
+            .inner4 => self.inner4.grow(),
+            .inner8 => self.inner8.grow(),
+            .inner16 => self.inner16.grow(),
+            .inner32 => self.inner32.grow(),
+            .inner64 => self.inner64.grow(),
             .none => @panic("Called `grow` on none."),
             else => @panic("Called `grow` on non-inner node."),
         };
@@ -670,7 +684,7 @@ const HLL = extern struct {
 
 fn InnerNode(comptime bucket_count: u8) type {
     const head_infix_len = 6;
-    //const buffer_size = max_bucket_count - bucket_count;
+    const buffer_size = max_bucket_count - bucket_count;
 
     return extern struct {
         tag: NodeTag = Node.innerNodeTag(bucket_count),
@@ -697,10 +711,10 @@ fn InnerNode(comptime bucket_count: u8) type {
             child_set: ByteBitset = ByteBitset.initEmpty(),
             rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
             buckets: Buckets = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
-            //buffer: Buffer = undefined,
+            buffer: Buffer = undefined,
 
             const Buckets = [bucket_count]Bucket;
-            //const Buffer = [buffer_size][key_length]u8;
+            const Buffer = [buffer_size][key_length]u8;
 
             const Bucket = extern struct {
                 const SLOT_COUNT = 4;
@@ -903,7 +917,7 @@ fn InnerNode(comptime bucket_count: u8) type {
                             const rand_hash_used = self.body.rand_hash_used.isSet(byte_key);
 
                             const bucket_index = hashByteKey(rand_hash_used, bucket_count, byte_key);
-                            if (self.body.buckets[bucket_index].get(byte_key).tag != .none) {
+                            if (self.body.buckets[bucket_index].get(byte_key).unknown.tag != .none) {
                                 s = if (rand_hash_used) '◆' else '●';
                             } else {
                                 s = if (rand_hash_used) '◇' else '○';
@@ -1015,6 +1029,7 @@ fn InnerNode(comptime bucket_count: u8) type {
         }
 
         pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            //std.debug.print("PUT:\n{s}\n", .{self});
             const single_owner = parent_single_owner and self.body.ref_count == 1;
 
             var branch_depth = start_depth;
@@ -1047,29 +1062,76 @@ fn InnerNode(comptime bucket_count: u8) type {
                     self_or_copy.cuckooUpdate(new_child);
                     return @bitCast(Node, self_or_copy);
                 } else {
-                    const new_child_node = try InitLeafNode(branch_depth, key, value, allocator);
-                    const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(branch_depth, key));
-                    const new_count = self.body.leaf_count + 1;
-
                     var self_or_copy = if (single_owner) self else try self.copy(allocator);
+                    var buffer_contents: [buffer_size+1][key_length]u8 = undefined;
+                    var buffer_count: u32 = 0;
+                    var flushed_node: Node = undefined;
+                    if (value != null) {
+                        const new_child_node = try InitLeafNode(branch_depth, key, value, allocator);
+                        const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(branch_depth, key));
+                        const new_count = self.body.leaf_count + 1;
 
-                    self_or_copy.body.child_sum_hash = new_hash;
-                    self_or_copy.body.leaf_count = new_count;
+                        self_or_copy.body.child_sum_hash = new_hash;
+                        self_or_copy.body.leaf_count = new_count;
 
-                    var displaced = self_or_copy.cuckooPut(new_child_node);
-                    if(displaced) |_| {
-                        //var buff = self_or_copy.body.buffer;
+                        var displaced = self_or_copy.cuckooPut(new_child_node);
+                        if(displaced == null) {
+                            return @bitCast(Node, self_or_copy);
+                        }
+                        std.mem.copy([key_length]u8,
+                            buffer_contents[0..self_or_copy.body.buffer_count],
+                            self_or_copy.body.buffer[0..self_or_copy.body.buffer_count]);
+
+                        buffer_count = self_or_copy.body.buffer_count;
+                        self_or_copy.body.buffer_count = 0;
 
                         var grown = @bitCast(Node, self_or_copy);
                         while(displaced) |entry| {
-                            grown = try grown.grow(allocator);
+                            grown = grown.grow();
                             displaced = grown.cuckooPut(entry);
                         }
-                        //_ = buff;
-                        return grown;
+
+                        flushed_node = grown;
+                    } else {
+                        for (self_or_copy.body.buffer[0..self_or_copy.body.buffer_count]) |*buffered_key| {
+                            if(std.mem.eql(u8, key, buffered_key)) {
+                                std.debug.print("Key already in tree. Found buffered.\n", .{});
+                                return @bitCast(Node, self_or_copy);
+                            }
+                        }
+
+                        const new_hash = Hash.xor(self.body.child_sum_hash, keyHash(key));
+                        const new_count = self_or_copy.body.leaf_count + 1;
+
+                        self_or_copy.body.child_sum_hash = new_hash;
+                        self_or_copy.body.leaf_count = new_count;
+
+                        if (self_or_copy.body.buffer_count < buffer_size) {
+                            self_or_copy.body.buffer[self.body.buffer_count] = key.*;
+                            self_or_copy.body.buffer_count += 1;
+
+                            return @bitCast(Node, self_or_copy);
+                        }
+
+                        buffer_count = self_or_copy.body.buffer_count;
+
+                        std.mem.copy([key_length]u8,
+                            buffer_contents[0..buffer_count],
+                            self_or_copy.body.buffer[0..self_or_copy.body.buffer_count]);
+                        
+                        self_or_copy.body.buffer_count = 0;
+
+                        buffer_contents[buffer_count] = key.*;
+                        buffer_count += 1;
+
+                        flushed_node = @bitCast(Node, self_or_copy);
+                    }
+                    
+                    for (buffer_contents[0..buffer_count]) |*flushed_key| {
+                        flushed_node = try flushed_node.flush(flushed_key, allocator);
                     }
 
-                    return @bitCast(Node, self_or_copy);
+                    return flushed_node;
                 }
             }
 
@@ -1081,6 +1143,41 @@ fn InnerNode(comptime bucket_count: u8) type {
             const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
 
             return try InnerNode(1).initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
+        }
+
+        fn flush(self: Head, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Node {
+            const byte_key = key[self.branch_depth];
+            if (self.cuckooHas(byte_key)) {
+                    // The node already has a child branch with the same byte byte_key as the one in the key.
+                    const old_child = self.cuckooGet(byte_key);
+                    const old_child_hash = old_child.hash(self.branch_depth, key);
+                    const new_child = try old_child.put(self.branch_depth, key, null, true, allocator);
+                    // Is always single owner because technically flushing doesn't change the content
+                    // and the child can only exist if it was created with the flush, and is therefore only
+                    // owned by this node.
+                    const new_child_hash = new_child.hash(self.branch_depth, key);
+                    if (Hash.equal(old_child_hash, new_child_hash)) {
+                        std.debug.print("Key already in tree. Flushed and hash is equal.\n{s}\n{s}\n", .{ std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data) });
+                        return @bitCast(Node, self);
+                    }
+                    self.cuckooUpdate(new_child);
+                    return @bitCast(Node, self);
+            } else {
+                const new_child_node = try InitLeafNode(self.branch_depth, key, null, allocator);
+
+                var displaced = self.cuckooPut(new_child_node);
+                if(displaced == null) {
+                    return @bitCast(Node, self);
+                }
+
+                var grown = @bitCast(Node, self);
+                while(displaced) |entry| {
+                    grown = grown.grow();
+                    displaced = grown.cuckooPut(entry);
+                }
+
+                return grown;
+            }
         }
 
         pub fn get(self: Head, start_depth: u8, at_depth: u8, byte_key: u8) Node {
@@ -1116,13 +1213,12 @@ fn InnerNode(comptime bucket_count: u8) type {
             return new_head;
         }
 
-        fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
+        fn grow(self: Head) Node {
             if (bucket_count == max_bucket_count) {
                 return @bitCast(Node, self);
             } else {
                 //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
-                const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
-                const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
+                const new_body = std.mem.bytesAsValue(GrownHead.Body, std.mem.asBytes(self.body));
                 //std.debug.print("Growed:{*}\n", .{new_body});
                 new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
                 return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body });
