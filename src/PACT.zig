@@ -397,7 +397,7 @@ const Node = extern union {
         };
     }
 
-    pub fn hash(self: Node, start_depth: u8, prefix: *const [key_length]u8) Hash {
+    pub fn hash(self: Node, start_depth: u8, prefix: [key_length]u8) Hash {
         return switch (self.unknown.tag) {
             .none => @panic("Called `hash` on none."),
             .inner1 => self.inner1.hash(start_depth, prefix),
@@ -571,7 +571,7 @@ const Node = extern union {
         };
     }
 
-    pub fn put(self: Node, start_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+    pub fn put(self: Node, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
         return switch (self.unknown.tag) {
             .none => @panic("Called `put` on none."),
             .inner1 => self.inner1.put(start_depth, key, value, single_owner, allocator),
@@ -928,11 +928,11 @@ fn InnerNode(comptime bucket_count: u8) type {
             try writer.writeAll("");
         }
 
-        pub fn init(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
+        pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
             const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
             const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
             new_body.* = Body{ .ref_count = 1, .leaf_count = 1, .infix = undefined };
-            new_body.infix = key.*;
+            new_body.infix = key;
 
             var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
 
@@ -943,7 +943,7 @@ fn InnerNode(comptime bucket_count: u8) type {
             return new_head;
         }
 
-        pub fn initBranch(start_depth: u8, branch_depth: u8, key: *const [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
+        pub fn initBranch(start_depth: u8, branch_depth: u8, key: [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
             const branch_node = try InnerNode(bucket_count).init(start_depth, branch_depth, key, allocator);
 
             _ = branch_node.cuckooPut(left); // We know that these can't fail.
@@ -980,7 +980,7 @@ fn InnerNode(comptime bucket_count: u8) type {
             return self.body.leaf_count;
         }
 
-        pub fn hash(self: Head, start_depth: u8, prefix: *const [key_length]u8) Hash {
+        pub fn hash(self: Head, start_depth: u8, prefix: [key_length]u8) Hash {
             _ = start_depth;
             _ = prefix;
             return self.body.child_sum_hash;
@@ -1014,7 +1014,7 @@ fn InnerNode(comptime bucket_count: u8) type {
             result_set.unsetAll();
         }
 
-        pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+        pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
             const single_owner = parent_single_owner and self.body.ref_count == 1;
 
             var branch_depth = start_depth;
@@ -1185,7 +1185,7 @@ fn InnerNode(comptime bucket_count: u8) type {
     };
 }
 
-fn InitLeafNode(start_depth: u8, key: *const [key_length]u8, opt_value: ?T, allocator: std.mem.Allocator) allocError!Node {
+fn InitLeafNode(start_depth: u8, key: [key_length]u8, opt_value: ?T, allocator: std.mem.Allocator) allocError!Node {
     const suffix_length = key_length - start_depth;
     if (opt_value) |value| {
         if (suffix_length <= 8) {
@@ -1251,7 +1251,7 @@ const InlineLeafNode = extern struct {
 
     const Head = @This();
 
-    pub fn init(start_depth: u8, key: *const [key_length]u8) allocError!Head {
+    pub fn init(start_depth: u8, key: [key_length]u8) allocError!Head {
         var new_head = Head{};
 
         const head_suffix_length = @minimum(key.len - start_depth, new_head.suffix.len);
@@ -1289,8 +1289,8 @@ const InlineLeafNode = extern struct {
         return 1;
     }
 
-    pub fn hash(self: Head, start_depth: u8, prefix: *const [key_length]u8) Hash {
-        var key = prefix.*;
+    pub fn hash(self: Head, start_depth: u8, prefix: [key_length]u8) Hash {
+        var key = prefix;
         for (key[start_depth..key_length]) |*byte, i| {
             byte.* = self.peek(start_depth, start_depth + @intCast(u8, i)) orelse unreachable;
         }
@@ -1327,7 +1327,7 @@ const InlineLeafNode = extern struct {
         return Node.none;
     }
 
-    pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+    pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
         _ = single_owner;
 
         var branch_depth = start_depth;
@@ -1369,7 +1369,7 @@ fn LeafNode(comptime no_value: bool, comptime suffix_len: u8) type {
             suffix: [body_suffix_len]u8 = undefined,
         };
 
-        pub fn init(start_depth: u8, key: *const [key_length]u8, value: if (no_value) void else T, allocator: std.mem.Allocator) allocError!Head {
+        pub fn init(start_depth: u8, key: [key_length]u8, value: if (no_value) void else T, allocator: std.mem.Allocator) allocError!Head {
             const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
             const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
@@ -1436,8 +1436,8 @@ fn LeafNode(comptime no_value: bool, comptime suffix_len: u8) type {
             return 1;
         }
 
-        pub fn hash(self: Head, start_depth: u8, prefix: *const [key_length]u8) Hash {
-            var key = prefix.*;
+        pub fn hash(self: Head, start_depth: u8, prefix: [key_length]u8) Hash {
+            var key = prefix;
             for (key[start_depth..key_length]) |*byte, i| {
                 byte.* = self.peek(start_depth, start_depth + @intCast(u8, i)) orelse unreachable;
             }
@@ -1479,7 +1479,7 @@ fn LeafNode(comptime no_value: bool, comptime suffix_len: u8) type {
             return Node.none;
         }
 
-        pub fn put(self: Head, start_depth: u8, key: *const [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+        pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
             _ = single_owner;
             if (body_suffix_len == 0) unreachable;
 
@@ -1871,7 +1871,7 @@ pub const Tree = struct {
         return self.child.count();
     }
 
-    pub fn put(self: *Tree, key: *const [key_length]u8, value: ?T) allocError!void {
+    pub fn put(self: *Tree, key: [key_length]u8, value: ?T) allocError!void {
         if (self.child.unknown.tag == .none) {
             self.child = try InitLeafNode(0, key, value, self.allocator);
         } else {
