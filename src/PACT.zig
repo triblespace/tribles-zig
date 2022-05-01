@@ -310,6 +310,10 @@ const Node = extern union {
         try writer.writeAll("");
     }
 
+    pub fn isNone(self: Node) bool {
+        return self.unknown.tag == .none;
+    }
+
     pub fn ref(self: Node, allocator: std.mem.Allocator) allocError!?Node {
         return switch (self.unknown.tag) {
             .none => Node{ .none = .{} },
@@ -399,7 +403,7 @@ const Node = extern union {
 
     pub fn hash(self: Node, start_depth: u8, prefix: [key_length]u8) Hash {
         return switch (self.unknown.tag) {
-            .none => @panic("Called `hash` on none."),
+            .none => Hash{.data: [_]u8{0} ** key_length},
             .inner1 => self.inner1.hash(start_depth, prefix),
             .inner2 => self.inner2.hash(start_depth, prefix),
             .inner4 => self.inner4.hash(start_depth, prefix),
@@ -738,7 +742,7 @@ fn InnerNode(comptime bucket_count: u8) type {
                         }
                     }
                     for (self.slots) |*slot| {
-                        if (slot.unknown.tag == .none) {
+                        if (slot.isNone()) {
                             slot.* = entry;
                             return true;
                         }
@@ -1872,7 +1876,7 @@ pub const Tree = struct {
     }
 
     pub fn put(self: *Tree, key: [key_length]u8, value: ?T) allocError!void {
-        if (self.child.unknown.tag == .none) {
+        if (self.child.isNone()) {
             self.child = try InitLeafNode(0, key, value, self.allocator);
         } else {
             self.child = try self.child.put(0, key, value, true, self.allocator);
@@ -1893,19 +1897,13 @@ pub const Tree = struct {
     //   return new PACTCursor(this);
     // }
 
-    // isEmpty() {
-    //   return this.child === null;
-    // }
+    pub fn isEmpty(self: *Tree) bool {
+       return this.child.isNone();
+    }
 
-    // isEqual(other) {
-    //   return (
-    //     this.child === other.child ||
-    //     (this.keyLength === other.keyLength &&
-    //       !!this.child &&
-    //       !!other.child &&
-    //       hash_equal(this.child.hash, other.child.hash))
-    //   );
-    // }
+    pub fn isEqual(self: *Tree, other: *Tree) bool {
+      return this.child.hash(0, undefined).equal(other.child.hash(0, undefined));
+    }
 
     // isSubsetOf(other) {
     //   return (
@@ -1980,27 +1978,6 @@ pub const Tree = struct {
     //     return new PACTTree(null);
     //   }
     //   return new PACTTree(_difference(thisNode, otherNode));
-    // }
-
-    // *entries() {
-    //   if (this.child === null) return;
-    //   for (const [k, v] of _walk(this.child)) {
-    //     yield [k.slice(), v];
-    //   }
-    // }
-
-    // *keys() {
-    //   if (this.child === null) return;
-    //   for (const [k, v] of _walk(this.child)) {
-    //     yield k.slice();
-    //   }
-    // }
-
-    // *values() {
-    //   if (this.child === null) return;
-    //   for (const [k, v] of _walk(this.child)) {
-    //     yield v;
-    //   }
     // }
 };
 
