@@ -6,6 +6,8 @@ const Card = @import("Card.zig").Card;
 
 const mem = std.mem;
 
+const T = usize;
+
 // TODO: change hash set index to boolean or at least make set -> 1, unset -> 0
 
 // Uninitialized memory initialized by init()
@@ -169,6 +171,10 @@ fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
     return lut;
 }
 
+fn depth_to_infix(comptime infix_len: u8, infix_end: u8, depth: u8) u8 {
+    return (depth + infix_len) - infix_end;
+}
+
 pub const key_length = 64;
 pub const T = u64;
 
@@ -176,29 +182,23 @@ const allocError = std.mem.Allocator.Error;
 
 const NodeTag = enum(u8) {
     none,
-    inner1,
-    inner2,
-    inner4,
-    inner8,
-    inner16,
-    inner32,
-    inner64,
-    leaf8,
-    leaf16,
-    leaf24,
-    leaf32,
-    leaf40,
-    leaf48,
-    leaf56,
-    leaf64,
-    twig15,
-    twig16,
-    twig24,
-    twig32,
-    twig40,
-    twig48,
-    twig56,
-    twig64,
+    branch1,
+    branch2,
+    branch4,
+    branch8,
+    branch16,
+    branch32,
+    branch64,
+    infix8,
+    infix16,
+    infix24,
+    infix32,
+    infix40,
+    infix48,
+    infix56,
+    infix64,
+    leaf,
+    twig,
 };
 
 const Node = extern union {
@@ -210,65 +210,50 @@ const Node = extern union {
         tag: NodeTag = .none,
         padding: [15]u8 = undefined,
     },
-    inner1: InnerNode(1),
-    inner2: InnerNode(2),
-    inner4: InnerNode(4),
-    inner8: InnerNode(8),
-    inner16: InnerNode(16),
-    inner32: InnerNode(32),
-    inner64: InnerNode(64),
-    leaf8: LeafNode(false, 8),
-    leaf16: LeafNode(false, 16),
-    leaf24: LeafNode(false, 24),
-    leaf32: LeafNode(false, 32),
-    leaf40: LeafNode(false, 40),
-    leaf48: LeafNode(false, 48),
-    leaf56: LeafNode(false, 56),
-    leaf64: LeafNode(false, 64),
-    twig15: InlineLeafNode,
-    twig16: LeafNode(true, 16),
-    twig24: LeafNode(true, 24),
-    twig32: LeafNode(true, 32),
-    twig40: LeafNode(true, 40),
-    twig48: LeafNode(true, 48),
-    twig56: LeafNode(true, 56),
-    twig64: LeafNode(true, 64),
+    branch1: BranchNode(1),
+    branch2: BranchNode(2),
+    branch4: BranchNode(4),
+    branch8: BranchNode(8),
+    branch16: BranchNode(16),
+    branch32: BranchNode(32),
+    branch64: BranchNode(64),
+    infix8: InfixNode(8),
+    infix16: InfixNode(16),
+    infix24: InfixNode(24),
+    infix32: InfixNode(32),
+    infix40: InfixNode(40),
+    infix48: InfixNode(48),
+    infix56: InfixNode(56),
+    infix64: InfixNode(64),
+    leaf: LeafNode,
+    twig: TwigNode,
 
     const none = Node{ .none = .{ .tag = .none } };
 
-    fn innerNodeTag(comptime bucket_count: u8) NodeTag {
+    fn branchNodeTag(comptime bucket_count: u8) NodeTag {
         return switch (bucket_count) {
-            1 => NodeTag.inner1,
-            2 => NodeTag.inner2,
-            4 => NodeTag.inner4,
-            8 => NodeTag.inner8,
-            16 => NodeTag.inner16,
-            32 => NodeTag.inner32,
-            64 => NodeTag.inner64,
+            1 => NodeTag.branch1,
+            2 => NodeTag.branch2,
+            4 => NodeTag.branch4,
+            8 => NodeTag.branch8,
+            16 => NodeTag.branch16,
+            32 => NodeTag.branch32,
+            64 => NodeTag.branch64,
             else => @panic("Bad bucket count for tag."),
         };
     }
 
-    fn leafNodeTag(comptime no_value: bool, comptime suffix_len: u8) NodeTag {
-        return if (no_value) switch (suffix_len) {
-            16 => NodeTag.twig16,
-            24 => NodeTag.twig24,
-            32 => NodeTag.twig32,
-            40 => NodeTag.twig40,
-            48 => NodeTag.twig48,
-            56 => NodeTag.twig56,
-            64 => NodeTag.twig64,
-            else => @panic("Bad suffix count for twig tag."),
-        } else switch (suffix_len) {
-            8 => NodeTag.leaf8,
-            16 => NodeTag.leaf16,
-            24 => NodeTag.leaf24,
-            32 => NodeTag.leaf32,
-            40 => NodeTag.leaf40,
-            48 => NodeTag.leaf48,
-            56 => NodeTag.leaf56,
-            64 => NodeTag.leaf64,
-            else => @panic("Bad suffix count for leaf tag."),
+    fn infixNodeTag(comptime suffix_len: u8) NodeTag {
+        return switch (suffix_len) {
+            8 => NodeTag.infix8,
+            16 => NodeTag.infix16,
+            24 => NodeTag.infix24,
+            32 => NodeTag.infix32,
+            40 => NodeTag.infix40,
+            48 => NodeTag.infix48,
+            56 => NodeTag.infix56,
+            64 => NodeTag.infix64,
+            else => @panic("Bad infix count for infix tag."),
         };
     }
 
@@ -283,29 +268,23 @@ const Node = extern union {
 
         switch (self.unknown.tag) {
             .none => try writer.print("none", .{}),
-            .inner1 => try writer.print("{s}", .{self.inner1}),
-            .inner2 => try writer.print("{s}", .{self.inner2}),
-            .inner4 => try writer.print("{s}", .{self.inner4}),
-            .inner8 => try writer.print("{s}", .{self.inner8}),
-            .inner16 => try writer.print("{s}", .{self.inner16}),
-            .inner32 => try writer.print("{s}", .{self.inner32}),
-            .inner64 => try writer.print("{s}", .{self.inner64}),
-            .leaf8 => try writer.print("{s}", .{self.leaf8}),
-            .leaf16 => try writer.print("{s}", .{self.leaf16}),
-            .leaf24 => try writer.print("{s}", .{self.leaf24}),
-            .leaf32 => try writer.print("{s}", .{self.leaf32}),
-            .leaf40 => try writer.print("{s}", .{self.leaf40}),
-            .leaf48 => try writer.print("{s}", .{self.leaf48}),
-            .leaf56 => try writer.print("{s}", .{self.leaf56}),
-            .leaf64 => try writer.print("{s}", .{self.leaf64}),
-            .twig15 => try writer.print("{s}", .{self.twig15}),
-            .twig16 => try writer.print("{s}", .{self.twig16}),
-            .twig24 => try writer.print("{s}", .{self.twig24}),
-            .twig32 => try writer.print("{s}", .{self.twig32}),
-            .twig40 => try writer.print("{s}", .{self.twig40}),
-            .twig48 => try writer.print("{s}", .{self.twig48}),
-            .twig56 => try writer.print("{s}", .{self.twig56}),
-            .twig64 => try writer.print("{s}", .{self.twig64}),
+            .branch1 => try writer.print("{s}", .{self.branch1}),
+            .branch2 => try writer.print("{s}", .{self.branch2}),
+            .branch4 => try writer.print("{s}", .{self.branch4}),
+            .branch8 => try writer.print("{s}", .{self.branch8}),
+            .branch16 => try writer.print("{s}", .{self.branch16}),
+            .branch32 => try writer.print("{s}", .{self.branch32}),
+            .branch64 => try writer.print("{s}", .{self.branch64}),
+            .infix8 => try writer.print("{s}",  .{self.infix8}),
+            .infix16 => try writer.print("{s}", .{self.infix16}),
+            .infix24 => try writer.print("{s}", .{self.infix24}),
+            .infix32 => try writer.print("{s}", .{self.infix32}),
+            .infix40 => try writer.print("{s}", .{self.infix40}),
+            .infix48 => try writer.print("{s}", .{self.infix48}),
+            .infix56 => try writer.print("{s}", .{self.infix56}),
+            .infix64 => try writer.print("{s}", .{self.infix64}),
+            .leaf => try writer.print("{s}", .{self.leaf}),
+            .twig => try writer.print("{s}", .{self.twig}),
         }
         try writer.writeAll("");
     }
@@ -317,318 +296,258 @@ const Node = extern union {
     pub fn ref(self: Node, allocator: std.mem.Allocator) allocError!?Node {
         return switch (self.unknown.tag) {
             .none => Node{ .none = .{} },
-            .inner1 => self.inner1.ref(allocator),
-            .inner2 => self.inner2.ref(allocator),
-            .inner4 => self.inner4.ref(allocator),
-            .inner8 => self.inner8.ref(allocator),
-            .inner16 => self.inner16.ref(allocator),
-            .inner32 => self.inner32.ref(allocator),
-            .inner64 => self.inner64.ref(allocator),
-            .leaf8 => self.leaf8.ref(allocator),
-            .leaf16 => self.leaf16.ref(allocator),
-            .leaf24 => self.leaf24.ref(allocator),
-            .leaf32 => self.leaf32.ref(allocator),
-            .leaf40 => self.leaf40.ref(allocator),
-            .leaf48 => self.leaf48.ref(allocator),
-            .leaf56 => self.leaf56.ref(allocator),
-            .leaf64 => self.leaf64.ref(allocator),
-            .twig15 => self.twig15.ref(allocator),
-            .twig16 => self.twig16.ref(allocator),
-            .twig24 => self.twig24.ref(allocator),
-            .twig32 => self.twig32.ref(allocator),
-            .twig40 => self.twig40.ref(allocator),
-            .twig48 => self.twig48.ref(allocator),
-            .twig56 => self.twig56.ref(allocator),
-            .twig64 => self.twig64.ref(allocator),
+            .branch1 => self.branch1.ref(allocator),
+            .branch2 => self.branch2.ref(allocator),
+            .branch4 => self.branch4.ref(allocator),
+            .branch8 => self.branch8.ref(allocator),
+            .branch16 => self.branch16.ref(allocator),
+            .branch32 => self.branch32.ref(allocator),
+            .branch64 => self.branch64.ref(allocator),
+            .infix8 =>  self.infix8.ref(allocator),
+            .infix16 => self.infix16.ref(allocator),
+            .infix24 => self.infix24.ref(allocator),
+            .infix32 => self.infix32.ref(allocator),
+            .infix40 => self.infix40.ref(allocator),
+            .infix48 => self.infix48.ref(allocator),
+            .infix56 => self.infix56.ref(allocator),
+            .infix64 => self.infix64.ref(allocator),
+            .leaf => self.leaf.ref(allocator),
+            .twig => self.twig.ref(allocator),
         };
     }
 
     pub fn rel(self: Node, allocator: std.mem.Allocator) void {
         switch (self.unknown.tag) {
             .none => {},
-            .inner1 => self.inner1.rel(allocator),
-            .inner2 => self.inner2.rel(allocator),
-            .inner4 => self.inner4.rel(allocator),
-            .inner8 => self.inner8.rel(allocator),
-            .inner16 => self.inner16.rel(allocator),
-            .inner32 => self.inner32.rel(allocator),
-            .inner64 => self.inner64.rel(allocator),
-            .leaf8 => self.leaf8.rel(allocator),
-            .leaf16 => self.leaf16.rel(allocator),
-            .leaf24 => self.leaf24.rel(allocator),
-            .leaf32 => self.leaf32.rel(allocator),
-            .leaf40 => self.leaf40.rel(allocator),
-            .leaf48 => self.leaf48.rel(allocator),
-            .leaf56 => self.leaf56.rel(allocator),
-            .leaf64 => self.leaf64.rel(allocator),
-            .twig15 => self.twig15.rel(allocator),
-            .twig16 => self.twig16.rel(allocator),
-            .twig24 => self.twig24.rel(allocator),
-            .twig32 => self.twig32.rel(allocator),
-            .twig40 => self.twig40.rel(allocator),
-            .twig48 => self.twig48.rel(allocator),
-            .twig56 => self.twig56.rel(allocator),
-            .twig64 => self.twig64.rel(allocator),
+            .branch1 => self.branch1.rel(allocator),
+            .branch2 => self.branch2.rel(allocator),
+            .branch4 => self.branch4.rel(allocator),
+            .branch8 => self.branch8.rel(allocator),
+            .branch16 => self.branch16.rel(allocator),
+            .branch32 => self.branch32.rel(allocator),
+            .branch64 => self.branch64.rel(allocator),
+            .infix8 =>  self.infix8.rel(allocator),
+            .infix16 => self.infix16.rel(allocator),
+            .infix24 => self.infix24.rel(allocator),
+            .infix32 => self.infix32.rel(allocator),
+            .infix40 => self.infix40.rel(allocator),
+            .infix48 => self.infix48.rel(allocator),
+            .infix56 => self.infix56.rel(allocator),
+            .infix64 => self.infix64.rel(allocator),
+            .leaf => self.leaf.rel(allocator),
+            .twig => self.twig.rel(allocator),
         }
     }
 
     pub fn count(self: Node) u64 {
         return switch (self.unknown.tag) {
             .none => 0,
-            .inner1 => self.inner1.count(),
-            .inner2 => self.inner2.count(),
-            .inner4 => self.inner4.count(),
-            .inner8 => self.inner8.count(),
-            .inner16 => self.inner16.count(),
-            .inner32 => self.inner32.count(),
-            .inner64 => self.inner64.count(),
-            .leaf8 => self.leaf8.count(),
-            .leaf16 => self.leaf16.count(),
-            .leaf24 => self.leaf24.count(),
-            .leaf32 => self.leaf32.count(),
-            .leaf40 => self.leaf40.count(),
-            .leaf48 => self.leaf48.count(),
-            .leaf56 => self.leaf56.count(),
-            .leaf64 => self.leaf64.count(),
-            .twig15 => self.twig15.count(),
-            .twig16 => self.twig16.count(),
-            .twig24 => self.twig24.count(),
-            .twig32 => self.twig32.count(),
-            .twig40 => self.twig40.count(),
-            .twig48 => self.twig48.count(),
-            .twig56 => self.twig56.count(),
-            .twig64 => self.twig64.count(),
+            .branch1 => self.branch1.count(),
+            .branch2 => self.branch2.count(),
+            .branch4 => self.branch4.count(),
+            .branch8 => self.branch8.count(),
+            .branch16 => self.branch16.count(),
+            .branch32 => self.branch32.count(),
+            .branch64 => self.branch64.count(),
+            .infix8 =>  self.infix8.count(),
+            .infix16 => self.infix16.count(),
+            .infix24 => self.infix24.count(),
+            .infix32 => self.infix32.count(),
+            .infix40 => self.infix40.count(),
+            .infix48 => self.infix48.count(),
+            .infix56 => self.infix56.count(),
+            .infix64 => self.infix64.count(),
+            .leaf => self.leaf.count(),
+            .twig => self.twig.count(),
         };
     }
 
-    pub fn hash(self: Node, start_depth: u8, prefix: [key_length]u8) Hash {
+    pub fn hash(self: Node, prefix: [key_length]u8) Hash {
         return switch (self.unknown.tag) {
             .none => Hash{.data: [_]u8{0} ** key_length},
-            .inner1 => self.inner1.hash(start_depth, prefix),
-            .inner2 => self.inner2.hash(start_depth, prefix),
-            .inner4 => self.inner4.hash(start_depth, prefix),
-            .inner8 => self.inner8.hash(start_depth, prefix),
-            .inner16 => self.inner16.hash(start_depth, prefix),
-            .inner32 => self.inner32.hash(start_depth, prefix),
-            .inner64 => self.inner64.hash(start_depth, prefix),
-            .leaf8 => self.leaf8.hash(start_depth, prefix),
-            .leaf16 => self.leaf16.hash(start_depth, prefix),
-            .leaf24 => self.leaf24.hash(start_depth, prefix),
-            .leaf32 => self.leaf32.hash(start_depth, prefix),
-            .leaf40 => self.leaf40.hash(start_depth, prefix),
-            .leaf48 => self.leaf48.hash(start_depth, prefix),
-            .leaf56 => self.leaf56.hash(start_depth, prefix),
-            .leaf64 => self.leaf64.hash(start_depth, prefix),
-            .twig15 => self.twig15.hash(start_depth, prefix),
-            .twig16 => self.twig16.hash(start_depth, prefix),
-            .twig24 => self.twig24.hash(start_depth, prefix),
-            .twig32 => self.twig32.hash(start_depth, prefix),
-            .twig40 => self.twig40.hash(start_depth, prefix),
-            .twig48 => self.twig48.hash(start_depth, prefix),
-            .twig56 => self.twig56.hash(start_depth, prefix),
-            .twig64 => self.twig64.hash(start_depth, prefix),
+            .branch1 => self.branch1.hash(prefix),
+            .branch2 => self.branch2.hash(prefix),
+            .branch4 => self.branch4.hash(prefix),
+            .branch8 => self.branch8.hash(prefix),
+            .branch16 => self.branch16.hash(prefix),
+            .branch32 => self.branch32.hash(prefix),
+            .branch64 => self.branch64.hash(prefix),
+            .infix8 =>  self.infix8.hash(prefix),
+            .infix16 => self.infix16.hash(prefix),
+            .infix24 => self.infix24.hash(prefix),
+            .infix32 => self.infix32.hash(prefix),
+            .infix40 => self.infix40.hash(prefix),
+            .infix48 => self.infix48.hash(prefix),
+            .infix56 => self.infix56.hash(prefix),
+            .infix64 => self.infix64.hash(prefix),
+            .leaf => self.leaf.hash(prefix),
+            .twig => self.twig.hash(prefix),
+        };
+    }
+
+    pub fn range(self: Node) u8 {
+        return switch (self.unknown.tag) {
+            .none => @panic("Called `range` on none."),
+            .branch1 => self.branch1.range(),
+            .branch2 => self.branch2.range(),
+            .branch4 => self.branch4.range(),
+            .branch8 => self.branch8.range(),
+            .branch16 => self.branch16.range(),
+            .branch32 => self.branch32.range(),
+            .branch64 => self.branch64.range(),
+            .infix8 =>  self.infix8.range(),
+            .infix16 => self.infix16.range(),
+            .infix24 => self.infix24.range(),
+            .infix32 => self.infix32.range(),
+            .infix40 => self.infix40.range(),
+            .infix48 => self.infix48.range(),
+            .infix56 => self.infix56.range(),
+            .infix64 => self.infix64.range(),
+            .leaf => self.leaf.range(),
+            .twig => self.twig.range(),
         };
     }
 
     pub fn depth(self: Node) u8 {
         return switch (self.unknown.tag) {
             .none => @panic("Called `depth` on none."),
-            .inner1 => self.inner1.depth(),
-            .inner2 => self.inner2.depth(),
-            .inner4 => self.inner4.depth(),
-            .inner8 => self.inner8.depth(),
-            .inner16 => self.inner16.depth(),
-            .inner32 => self.inner32.depth(),
-            .inner64 => self.inner64.depth(),
-            .leaf8 => self.leaf8.depth(),
-            .leaf16 => self.leaf16.depth(),
-            .leaf24 => self.leaf24.depth(),
-            .leaf32 => self.leaf32.depth(),
-            .leaf40 => self.leaf40.depth(),
-            .leaf48 => self.leaf48.depth(),
-            .leaf56 => self.leaf56.depth(),
-            .leaf64 => self.leaf64.depth(),
-            .twig15 => self.twig15.depth(),
-            .twig16 => self.twig16.depth(),
-            .twig24 => self.twig24.depth(),
-            .twig32 => self.twig32.depth(),
-            .twig40 => self.twig40.depth(),
-            .twig48 => self.twig48.depth(),
-            .twig56 => self.twig56.depth(),
-            .twig64 => self.twig64.depth(),
+            .branch1 => self.branch1.depth(),
+            .branch2 => self.branch2.depth(),
+            .branch4 => self.branch4.depth(),
+            .branch8 => self.branch8.depth(),
+            .branch16 => self.branch16.depth(),
+            .branch32 => self.branch32.depth(),
+            .branch64 => self.branch64.depth(),
+            .infix8 =>  self.infix8.depth(),
+            .infix16 => self.infix16.depth(),
+            .infix24 => self.infix24.depth(),
+            .infix32 => self.infix32.depth(),
+            .infix40 => self.infix40.depth(),
+            .infix48 => self.infix48.depth(),
+            .infix56 => self.infix56.depth(),
+            .infix64 => self.infix64.depth(),
+            .leaf => self.leaf.depth(),
+            .twig => self.twig.depth(),
         };
     }
 
-    pub fn peekFirst(self: Node) u8 {
+    pub fn peek(self: Node, at_depth: u8) ?u8 {
         return switch (self.unknown.tag) {
             .none => @panic("Called `peek` on none."),
-            .inner1 => self.inner1.peekFirst(),
-            .inner2 => self.inner2.peekFirst(),
-            .inner4 => self.inner4.peekFirst(),
-            .inner8 => self.inner8.peekFirst(),
-            .inner16 => self.inner16.peekFirst(),
-            .inner32 => self.inner32.peekFirst(),
-            .inner64 => self.inner64.peekFirst(),
-            .leaf8 => self.leaf8.peekFirst(),
-            .leaf16 => self.leaf16.peekFirst(),
-            .leaf24 => self.leaf24.peekFirst(),
-            .leaf32 => self.leaf32.peekFirst(),
-            .leaf40 => self.leaf40.peekFirst(),
-            .leaf48 => self.leaf48.peekFirst(),
-            .leaf56 => self.leaf56.peekFirst(),
-            .leaf64 => self.leaf64.peekFirst(),
-            .twig15 => self.twig15.peekFirst(),
-            .twig16 => self.twig16.peekFirst(),
-            .twig24 => self.twig24.peekFirst(),
-            .twig32 => self.twig32.peekFirst(),
-            .twig40 => self.twig40.peekFirst(),
-            .twig48 => self.twig48.peekFirst(),
-            .twig56 => self.twig56.peekFirst(),
-            .twig64 => self.twig64.peekFirst(),
+            .branch1 => self.branch1.peek(at_depth),
+            .branch2 => self.branch2.peek(at_depth),
+            .branch4 => self.branch4.peek(at_depth),
+            .branch8 => self.branch8.peek(at_depth),
+            .branch16 => self.branch16.peek(at_depth),
+            .branch32 => self.branch32.peek(at_depth),
+            .branch64 => self.branch64.peek(at_depth),
+            .infix8 =>  self.infix8.peek(at_depth),
+            .infix16 => self.infix16.peek(at_depth),
+            .infix24 => self.infix24.peek(at_depth),
+            .infix32 => self.infix32.peek(at_depth),
+            .infix40 => self.infix40.peek(at_depth),
+            .infix48 => self.infix48.peek(at_depth),
+            .infix56 => self.infix56.peek(at_depth),
+            .infix64 => self.infix64.peek(at_depth),
+            .leaf => self.leaf.peek(at_depth),
+            .twig => self.twig.peek(at_depth),
         };
     }
 
-    pub fn peek(self: Node, start_depth: u8, at_depth: u8) ?u8 {
-        return switch (self.unknown.tag) {
-            .none => @panic("Called `peek` on none."),
-            .inner1 => self.inner1.peek(start_depth, at_depth),
-            .inner2 => self.inner2.peek(start_depth, at_depth),
-            .inner4 => self.inner4.peek(start_depth, at_depth),
-            .inner8 => self.inner8.peek(start_depth, at_depth),
-            .inner16 => self.inner16.peek(start_depth, at_depth),
-            .inner32 => self.inner32.peek(start_depth, at_depth),
-            .inner64 => self.inner64.peek(start_depth, at_depth),
-            .leaf8 => self.leaf8.peek(start_depth, at_depth),
-            .leaf16 => self.leaf16.peek(start_depth, at_depth),
-            .leaf24 => self.leaf24.peek(start_depth, at_depth),
-            .leaf32 => self.leaf32.peek(start_depth, at_depth),
-            .leaf40 => self.leaf40.peek(start_depth, at_depth),
-            .leaf48 => self.leaf48.peek(start_depth, at_depth),
-            .leaf56 => self.leaf56.peek(start_depth, at_depth),
-            .leaf64 => self.leaf64.peek(start_depth, at_depth),
-            .twig15 => self.twig15.peek(start_depth, at_depth),
-            .twig16 => self.twig16.peek(start_depth, at_depth),
-            .twig24 => self.twig24.peek(start_depth, at_depth),
-            .twig32 => self.twig32.peek(start_depth, at_depth),
-            .twig40 => self.twig40.peek(start_depth, at_depth),
-            .twig48 => self.twig48.peek(start_depth, at_depth),
-            .twig56 => self.twig56.peek(start_depth, at_depth),
-            .twig64 => self.twig64.peek(start_depth, at_depth),
-        };
-    }
-
-    pub fn propose(self: Node, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
+    pub fn propose(self: Node, at_depth: u8, result_set: *ByteBitset) void {
         return switch (self.unknown.tag) {
             .none => @panic("Called `propose` on none."),
-            .inner1 => self.inner1.propose(start_depth, at_depth, result_set),
-            .inner2 => self.inner2.propose(start_depth, at_depth, result_set),
-            .inner4 => self.inner4.propose(start_depth, at_depth, result_set),
-            .inner8 => self.inner8.propose(start_depth, at_depth, result_set),
-            .inner16 => self.inner16.propose(start_depth, at_depth, result_set),
-            .inner32 => self.inner32.propose(start_depth, at_depth, result_set),
-            .inner64 => self.inner64.propose(start_depth, at_depth, result_set),
-            .leaf8 => self.leaf8.propose(start_depth, at_depth, result_set),
-            .leaf16 => self.leaf16.propose(start_depth, at_depth, result_set),
-            .leaf24 => self.leaf24.propose(start_depth, at_depth, result_set),
-            .leaf32 => self.leaf32.propose(start_depth, at_depth, result_set),
-            .leaf40 => self.leaf40.propose(start_depth, at_depth, result_set),
-            .leaf48 => self.leaf48.propose(start_depth, at_depth, result_set),
-            .leaf56 => self.leaf56.propose(start_depth, at_depth, result_set),
-            .leaf64 => self.leaf64.propose(start_depth, at_depth, result_set),
-            .twig15 => self.twig15.propose(start_depth, at_depth, result_set),
-            .twig16 => self.twig16.propose(start_depth, at_depth, result_set),
-            .twig24 => self.twig24.propose(start_depth, at_depth, result_set),
-            .twig32 => self.twig32.propose(start_depth, at_depth, result_set),
-            .twig40 => self.twig40.propose(start_depth, at_depth, result_set),
-            .twig48 => self.twig48.propose(start_depth, at_depth, result_set),
-            .twig56 => self.twig56.propose(start_depth, at_depth, result_set),
-            .twig64 => self.twig64.propose(start_depth, at_depth, result_set),
+            .branch1 => self.branch1.propose(at_depth, result_set),
+            .branch2 => self.branch2.propose(at_depth, result_set),
+            .branch4 => self.branch4.propose(at_depth, result_set),
+            .branch8 => self.branch8.propose(at_depth, result_set),
+            .branch16 => self.branch16.propose(at_depth, result_set),
+            .branch32 => self.branch32.propose(at_depth, result_set),
+            .branch64 => self.branch64.propose(at_depth, result_set),
+            .infix8 =>  self.infix8.propose(at_depth, result_set),
+            .infix16 => self.infix16.propose(at_depth, result_set),
+            .infix24 => self.infix24.propose(at_depth, result_set),
+            .infix32 => self.infix32.propose(at_depth, result_set),
+            .infix40 => self.infix40.propose(at_depth, result_set),
+            .infix48 => self.infix48.propose(at_depth, result_set),
+            .infix56 => self.infix56.propose(at_depth, result_set),
+            .infix64 => self.infix64.propose(at_depth, result_set),
+            .leaf => self.leaf.propose(at_depth, result_set),
+            .twig => self.twig.propose(at_depth, result_set),
         };
     }
 
-    pub fn get(self: Node, start_depth: u8, at_depth: u8, byte_key: u8) Node {
+    pub fn get(self: Node, at_depth: u8, byte_key: u8) Node {
         return switch (self.unknown.tag) {
             .none => @panic("Called `get` on none."),
-            .inner1 => self.inner1.get(start_depth, at_depth, byte_key),
-            .inner2 => self.inner2.get(start_depth, at_depth, byte_key),
-            .inner4 => self.inner4.get(start_depth, at_depth, byte_key),
-            .inner8 => self.inner8.get(start_depth, at_depth, byte_key),
-            .inner16 => self.inner16.get(start_depth, at_depth, byte_key),
-            .inner32 => self.inner32.get(start_depth, at_depth, byte_key),
-            .inner64 => self.inner64.get(start_depth, at_depth, byte_key),
-            .leaf8 => self.leaf8.get(start_depth, at_depth, byte_key),
-            .leaf16 => self.leaf16.get(start_depth, at_depth, byte_key),
-            .leaf24 => self.leaf24.get(start_depth, at_depth, byte_key),
-            .leaf32 => self.leaf32.get(start_depth, at_depth, byte_key),
-            .leaf40 => self.leaf40.get(start_depth, at_depth, byte_key),
-            .leaf48 => self.leaf48.get(start_depth, at_depth, byte_key),
-            .leaf56 => self.leaf56.get(start_depth, at_depth, byte_key),
-            .leaf64 => self.leaf64.get(start_depth, at_depth, byte_key),
-            .twig15 => self.twig15.get(start_depth, at_depth, byte_key),
-            .twig16 => self.twig16.get(start_depth, at_depth, byte_key),
-            .twig24 => self.twig24.get(start_depth, at_depth, byte_key),
-            .twig32 => self.twig32.get(start_depth, at_depth, byte_key),
-            .twig40 => self.twig40.get(start_depth, at_depth, byte_key),
-            .twig48 => self.twig48.get(start_depth, at_depth, byte_key),
-            .twig56 => self.twig56.get(start_depth, at_depth, byte_key),
-            .twig64 => self.twig64.get(start_depth, at_depth, byte_key),
+            .branch1 => self.branch1.get(at_depth, byte_key),
+            .branch2 => self.branch2.get(at_depth, byte_key),
+            .branch4 => self.branch4.get(at_depth, byte_key),
+            .branch8 => self.branch8.get(at_depth, byte_key),
+            .branch16 => self.branch16.get(at_depth, byte_key),
+            .branch32 => self.branch32.get(at_depth, byte_key),
+            .branch64 => self.branch64.get(at_depth, byte_key),
+            .infix8 =>  self.infix8.get(at_depth, byte_key),
+            .infix16 => self.infix16.get(at_depth, byte_key),
+            .infix24 => self.infix24.get(at_depth, byte_key),
+            .infix32 => self.infix32.get(at_depth, byte_key),
+            .infix40 => self.infix40.get(at_depth, byte_key),
+            .infix48 => self.infix48.get(at_depth, byte_key),
+            .infix56 => self.infix56.get(at_depth, byte_key),
+            .infix64 => self.infix64.get(at_depth, byte_key),
+            .leaf => self.leaf.get(at_depth, byte_key),
+            .twig => self.twig.get(at_depth, byte_key),
         };
     }
 
     pub fn put(self: Node, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
         return switch (self.unknown.tag) {
             .none => @panic("Called `put` on none."),
-            .inner1 => self.inner1.put(start_depth, key, value, single_owner, allocator),
-            .inner2 => self.inner2.put(start_depth, key, value, single_owner, allocator),
-            .inner4 => self.inner4.put(start_depth, key, value, single_owner, allocator),
-            .inner8 => self.inner8.put(start_depth, key, value, single_owner, allocator),
-            .inner16 => self.inner16.put(start_depth, key, value, single_owner, allocator),
-            .inner32 => self.inner32.put(start_depth, key, value, single_owner, allocator),
-            .inner64 => self.inner64.put(start_depth, key, value, single_owner, allocator),
-            .leaf8 => self.leaf8.put(start_depth, key, value, single_owner, allocator),
-            .leaf16 => self.leaf16.put(start_depth, key, value, single_owner, allocator),
-            .leaf24 => self.leaf24.put(start_depth, key, value, single_owner, allocator),
-            .leaf32 => self.leaf32.put(start_depth, key, value, single_owner, allocator),
-            .leaf40 => self.leaf40.put(start_depth, key, value, single_owner, allocator),
-            .leaf48 => self.leaf48.put(start_depth, key, value, single_owner, allocator),
-            .leaf56 => self.leaf56.put(start_depth, key, value, single_owner, allocator),
-            .leaf64 => self.leaf64.put(start_depth, key, value, single_owner, allocator),
-            .twig15 => self.twig15.put(start_depth, key, value, single_owner, allocator),
-            .twig16 => self.twig16.put(start_depth, key, value, single_owner, allocator),
-            .twig24 => self.twig24.put(start_depth, key, value, single_owner, allocator),
-            .twig32 => self.twig32.put(start_depth, key, value, single_owner, allocator),
-            .twig40 => self.twig40.put(start_depth, key, value, single_owner, allocator),
-            .twig48 => self.twig48.put(start_depth, key, value, single_owner, allocator),
-            .twig56 => self.twig56.put(start_depth, key, value, single_owner, allocator),
-            .twig64 => self.twig64.put(start_depth, key, value, single_owner, allocator),
+            .branch1 => self.branch1.put(start_depth, key, value, single_owner, allocator),
+            .branch2 => self.branch2.put(start_depth, key, value, single_owner, allocator),
+            .branch4 => self.branch4.put(start_depth, key, value, single_owner, allocator),
+            .branch8 => self.branch8.put(start_depth, key, value, single_owner, allocator),
+            .branch16 => self.branch16.put(start_depth, key, value, single_owner, allocator),
+            .branch32 => self.branch32.put(start_depth, key, value, single_owner, allocator),
+            .branch64 => self.branch64.put(start_depth, key, value, single_owner, allocator),
+            .infix8 =>  self.infix8.put(start_depth, key, value, single_owner, allocator),
+            .infix16 => self.infix16.put(start_depth, key, value, single_owner, allocator),
+            .infix24 => self.infix24.put(start_depth, key, value, single_owner, allocator),
+            .infix32 => self.infix32.put(start_depth, key, value, single_owner, allocator),
+            .infix40 => self.infix40.put(start_depth, key, value, single_owner, allocator),
+            .infix48 => self.infix48.put(start_depth, key, value, single_owner, allocator),
+            .infix56 => self.infix56.put(start_depth, key, value, single_owner, allocator),
+            .infix64 => self.infix64.put(start_depth, key, value, single_owner, allocator),
+            .leaf => self.leaf.put(start_depth, key, value, single_owner, allocator),
+            .twig => self.twig.put(start_depth, key, value, single_owner, allocator),
         };
     }
 
     fn cuckooPut(self: Node, node: Node) ?Node {
         return switch (self.unknown.tag) {
-            .inner1 => self.inner1.cuckooPut(node),
-            .inner2 => self.inner2.cuckooPut(node),
-            .inner4 => self.inner4.cuckooPut(node),
-            .inner8 => self.inner8.cuckooPut(node),
-            .inner16 => self.inner16.cuckooPut(node),
-            .inner32 => self.inner32.cuckooPut(node),
-            .inner64 => self.inner64.cuckooPut(node),
+            .branch1 => self.branch1.cuckooPut(node),
+            .branch2 => self.branch2.cuckooPut(node),
+            .branch4 => self.branch4.cuckooPut(node),
+            .branch8 => self.branch8.cuckooPut(node),
+            .branch16 => self.branch16.cuckooPut(node),
+            .branch32 => self.branch32.cuckooPut(node),
+            .branch64 => self.branch64.cuckooPut(node),
             .none => @panic("Called `cuckooPut` on none."),
-            else => @panic("Called `cuckooPut` on non-inner node."),
+            else => @panic("Called `cuckooPut` on non-branch node."),
         };
     }
 
     fn grow(self: Node, allocator: std.mem.Allocator) allocError!Node {
         return switch (self.unknown.tag) {
-            .inner1 => self.inner1.grow(allocator),
-            .inner2 => self.inner2.grow(allocator),
-            .inner4 => self.inner4.grow(allocator),
-            .inner8 => self.inner8.grow(allocator),
-            .inner16 => self.inner16.grow(allocator),
-            .inner32 => self.inner32.grow(allocator),
-            .inner64 => self.inner64.grow(allocator),
+            .branch1 => self.branch1.grow(allocator),
+            .branch2 => self.branch2.grow(allocator),
+            .branch4 => self.branch4.grow(allocator),
+            .branch8 => self.branch8.grow(allocator),
+            .branch16 => self.branch16.grow(allocator),
+            .branch32 => self.branch32.grow(allocator),
+            .branch64 => self.branch64.grow(allocator),
             .none => @panic("Called `grow` on none."),
-            else => @panic("Called `grow` on non-inner node."),
+            else => @panic("Called `grow` on non-branch node."),
         };
     }
 };
@@ -672,14 +591,13 @@ const HLL = extern struct {
     }
 };
 
-fn InnerNode(comptime bucket_count: u8) type {
-    const head_infix_len = 6;
-    //const buffer_size = max_bucket_count - bucket_count;
+fn BranchNode(comptime bucket_count: u8) type {
+    const infix_len = 6;
 
     return extern struct {
-        tag: NodeTag = Node.innerNodeTag(bucket_count),
+        tag: NodeTag = Node.branchNodeTag(bucket_count),
         /// The infix stored in this head.
-        infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
+        infix: [infix_len]u8 = [_]u8{0} ** infix_len,
         /// The branch depth of the body.
         branch_depth: u8,
         /// The address of the pointer associated with the key.
@@ -687,7 +605,7 @@ fn InnerNode(comptime bucket_count: u8) type {
 
         const Head = @This();
 
-        const GrownHead = if (bucket_count == max_bucket_count) Head else InnerNode(bucket_count << 1);
+        const GrownHead = if (bucket_count == max_bucket_count) Head else BranchNode(bucket_count << 1);
 
         const BODY_ALIGNMENT = 64;
 
@@ -697,23 +615,20 @@ fn InnerNode(comptime bucket_count: u8) type {
             buffer_count: u32 = 0,
             child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
             segment_hll: HLL = HLL.init(),
-            infix: [key_length]u8,
             child_set: ByteBitset = ByteBitset.initEmpty(),
             rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
             buckets: Buckets = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
-            //buffer: Buffer = undefined,
 
             const Buckets = [bucket_count]Bucket;
-            //const Buffer = [buffer_size][key_length]u8;
 
             const Bucket = extern struct {
                 const SLOT_COUNT = 4;
 
                 slots: [SLOT_COUNT]Node = [_]Node{Node{ .none = .{} }} ** SLOT_COUNT,
 
-                pub fn get(self: *const Bucket, byte_key: u8) Node {
+                pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
                     for (self.slots) |slot| {
-                        if (slot.unknown.tag != .none and slot.peekFirst() == byte_key) {
+                        if (slot.unknown.tag != .none and slot.peek(depth) == byte_key) {
                             return slot;
                         }
                     }
@@ -726,6 +641,7 @@ fn InnerNode(comptime bucket_count: u8) type {
                 /// Returns true iff it succeeds.
                 pub fn put(
                     self: *Bucket,
+                    depth: u8,
                     // / Determines the hash function used for each key and is used to detect outdated (free) slots.
                     rand_hash_used: *ByteBitset,
                     // / The current bucket count. Is used to detect outdated (free) slots.
@@ -736,7 +652,7 @@ fn InnerNode(comptime bucket_count: u8) type {
                     entry: Node,
                 ) bool {
                     for (self.slots) |*slot| {
-                        if (slot.unknown.tag != .none and slot.peekFirst() == entry.peekFirst()) {
+                        if (slot.unknown.tag != .none and slot.peek(depth) == entry.peek(depth)) {
                             slot.* = entry;
                             return true;
                         }
@@ -746,7 +662,7 @@ fn InnerNode(comptime bucket_count: u8) type {
                             slot.* = entry;
                             return true;
                         }
-                        const slot_key = slot.peekFirst();
+                        const slot_key = slot.peek(depth);
                         if (bucket_index != hashByteKey(rand_hash_used.isSet(slot_key), current_count, slot_key)) {
                             slot.* = entry;
                             return true;
@@ -758,11 +674,12 @@ fn InnerNode(comptime bucket_count: u8) type {
                 /// Updates the pointer for the key stored in this bucket.
                 pub fn update(
                     self: *Bucket,
+                    depth: u8,
                     // / The new entry value.
                     entry: Node,
                 ) void {
                     for (self.slots) |*slot| {
-                        if (slot.unknown.tag != .none and slot.peekFirst() == entry.peekFirst()) {
+                        if (slot.unknown.tag != .none and slot.peek(depth) == entry.peek(depth)) {
                             slot.* = entry;
                             return;
                         }
@@ -786,13 +703,14 @@ fn InnerNode(comptime bucket_count: u8) type {
                 /// Displaces the first slot that is using the alternate hash function.
                 pub fn displaceRandHashOnly(
                     self: *Bucket,
+                    depth: u8,
                     // / Determines the hash function used for each key and is used to detect outdated (free) slots.
                     rand_hash_used: *ByteBitset,
                     // / The entry to be stored in the bucket.
                     entry: Node,
                 ) Node {
                     for (self.slots) |*slot| {
-                        if (rand_hash_used.isSet(slot.peekFirst())) {
+                        if (rand_hash_used.isSet(slot.peek(depth))) {
                             const prev = slot.*;
                             slot.* = entry;
                             return prev;
@@ -815,7 +733,7 @@ fn InnerNode(comptime bucket_count: u8) type {
             _ = self;
             var card = Card.from(
                 \\┌────────────────────────────────────────────────────────────────────────────────┐
-                \\│ Inner Node @󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀                                                   │
+                \\│ Branch Node @󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀                                                   │
                 \\│━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                  │
                 \\│                                                                                │
                 \\│ Metadata                                                                       │
@@ -868,10 +786,6 @@ fn InnerNode(comptime bucket_count: u8) type {
             _ = std.fmt.bufPrint(&head_infix_data, "{s:_>12}", .{std.fmt.fmtSliceHexUpper(&self.infix)}) catch unreachable;
             var head_infix_iter = (std.unicode.Utf8View.init(&head_infix_data) catch unreachable).iterator();
 
-            var body_infix_data: [128:0]u8 = undefined;
-            _ = std.fmt.bufPrint(&body_infix_data, "{s:_>128}", .{std.fmt.fmtSliceHexUpper(&self.body.infix)}) catch unreachable;
-            var body_infix_iter = (std.unicode.Utf8View.init(&body_infix_data) catch unreachable).iterator();
-
             var branch_depth_data: [2:0]u8 = undefined;
             _ = std.fmt.bufPrint(&branch_depth_data, "{d:_>2}", .{self.branch_depth}) catch unreachable;
             var branch_depth_iter = (std.unicode.Utf8View.init(&branch_depth_data) catch unreachable).iterator();
@@ -887,7 +801,7 @@ fn InnerNode(comptime bucket_count: u8) type {
                         '\u{F0002}' => leaf_count_iter.nextCodepoint() orelse unreachable,
                         '\u{F0003}' => ref_count_iter.nextCodepoint() orelse unreachable,
                         '\u{F0005}' => head_infix_iter.nextCodepoint() orelse unreachable,
-                        '\u{F0006}' => body_infix_iter.nextCodepoint() orelse unreachable,
+                        '\u{F0006}' => '_',
                         '\u{F0007}' => branch_depth_iter.nextCodepoint() orelse unreachable,
                         '\u{F0008}' => if (bucket_count >= 1) '█' else '░',
                         '\u{F0009}' => if (bucket_count >= 2) '█' else '░',
@@ -907,7 +821,7 @@ fn InnerNode(comptime bucket_count: u8) type {
                             const rand_hash_used = self.body.rand_hash_used.isSet(byte_key);
 
                             const bucket_index = hashByteKey(rand_hash_used, bucket_count, byte_key);
-                            if (self.body.buckets[bucket_index].get(byte_key).tag != .none) {
+                            if (self.body.buckets[bucket_index].get(self.branch_depth, byte_key).tag != .none) {
                                 s = if (rand_hash_used) '◆' else '●';
                             } else {
                                 s = if (rand_hash_used) '◇' else '○';
@@ -932,28 +846,26 @@ fn InnerNode(comptime bucket_count: u8) type {
             try writer.writeAll("");
         }
 
-        pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
+        pub fn init(branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
             const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
             const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
-            new_body.* = Body{ .ref_count = 1, .leaf_count = 1, .infix = undefined };
-            new_body.infix = key;
+            new_body.* = Body{ .ref_count = 1, .leaf_count = 1 };
 
             var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
 
-            const head_infix_length = @minimum(key.len - start_depth, new_head.infix.len);
-            const key_end = start_depth + head_infix_length;
-            mem.copy(u8, new_head.infix[0..head_infix_length], key[start_depth..key_end]);
+            const used_infix_len = @minimum(branch_depth, infix_len);
+            mem.copy(u8, new_head.infix[infix_len-used_infix_len..], key[branch_depth-used_infix_len..branch_depth]);
 
             return new_head;
         }
 
-        pub fn initBranch(start_depth: u8, branch_depth: u8, key: [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
-            const branch_node = try InnerNode(bucket_count).init(start_depth, branch_depth, key, allocator);
+        pub fn initBranch(branch_depth: u8, key: [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
+            const branch_node = try BranchNode(bucket_count).init(branch_depth, key, allocator);
 
             _ = branch_node.cuckooPut(left); // We know that these can't fail.
             _ = branch_node.cuckooPut(right);
 
-            branch_node.body.child_sum_hash = Hash.xor(left.hash(branch_depth, key), right.hash(branch_depth, key));
+            branch_node.body.child_sum_hash = Hash.xor(left.hash(key), right.hash(key));
             branch_node.body.leaf_count = left.count() + right.count();
 
             return @bitCast(Node, branch_node);
@@ -984,33 +896,31 @@ fn InnerNode(comptime bucket_count: u8) type {
             return self.body.leaf_count;
         }
 
-        pub fn hash(self: Head, start_depth: u8, prefix: [key_length]u8) Hash {
-            _ = start_depth;
+        pub fn hash(self: Head, prefix: [key_length]u8) Hash {
             _ = prefix;
             return self.body.child_sum_hash;
+        }
+
+        pub fn range(self: Head) u8 {
+            return self.branch_depth - @minimum(self.branch_depth, infix_len);
         }
 
         pub fn depth(self: Head) u8 {
             return self.branch_depth;
         }
 
-        pub fn peekFirst(self: Head) u8 {
-            return self.infix[0];
+        pub fn peek(self: Head, at_depth: u8) ?u8 {
+            if (self.branch_depth <= at_depth) return null;
+            return self.infix[(at_depth + infix_len) - self.branch_depth];
         }
 
-        pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-            if (at_depth < start_depth or self.branch_depth <= at_depth) return null;
-            if (at_depth < start_depth + head_infix_len) return self.infix[at_depth - start_depth];
-            return self.body.infix[at_depth];
-        }
-
-        pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
+        pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
             if (at_depth == self.branch_depth) {
                 result_set.setIntersect(result_set, &self.body.child_set);
                 return;
             }
 
-            if (self.peek(start_depth, at_depth)) |byte_key| {
+            if (self.peek(at_depth)) |byte_key| {
                 result_set.singleIntersect(byte_key);
                 return;
             }
@@ -1023,17 +933,17 @@ fn InnerNode(comptime bucket_count: u8) type {
 
             var branch_depth = start_depth;
             while (branch_depth < self.branch_depth) : (branch_depth += 1) {
-                if (key[branch_depth] != self.peek(start_depth, branch_depth).?) break;
+                if (key[branch_depth] != self.peek(branch_depth).?) break;
             } else {
                 // The entire compressed infix above this node matched with the key.
                 const byte_key = key[branch_depth];
                 if (self.cuckooHas(byte_key)) {
                     // The node already has a child branch with the same byte byte_key as the one in the key.
                     const old_child = self.cuckooGet(byte_key);
-                    const old_child_hash = old_child.hash(self.branch_depth, key);
+                    const old_child_hash = old_child.hash(key);
                     const old_child_count = old_child.count();
                     const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
-                    const new_child_hash = new_child.hash(branch_depth, key);
+                    const new_child_hash = new_child.hash(key);
                     if (Hash.equal(old_child_hash, new_child_hash)) {
                         std.debug.print("Key already in tree. Hash is equal.\n{s}\n{s}\n", .{ std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data) });
                         return @bitCast(Node, self);
@@ -1051,8 +961,8 @@ fn InnerNode(comptime bucket_count: u8) type {
                     self_or_copy.cuckooUpdate(new_child);
                     return @bitCast(Node, self_or_copy);
                 } else {
-                    const new_child_node = try InitLeafNode(branch_depth, key, value, allocator);
-                    const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(branch_depth, key));
+                    const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
+                    const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(key));
                     const new_count = self.body.leaf_count + 1;
 
                     var self_or_copy = if (single_owner) self else try self.copy(allocator);
@@ -1079,19 +989,19 @@ fn InnerNode(comptime bucket_count: u8) type {
 
             var recycled_self = self;
             for (recycled_self.infix) |*byte, i| {
-                byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
+                byte.* = self.peek(branch_depth + @intCast(u8, i)) orelse break;
             }
 
-            const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
+            const sibling_leaf_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
 
-            return try InnerNode(1).initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
+            return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
         }
 
-        pub fn get(self: Head, start_depth: u8, at_depth: u8, byte_key: u8) Node {
+        pub fn get(self: Head, at_depth: u8, byte_key: u8) Node {
             if (at_depth == self.branch_depth and self.cuckooHas(byte_key)) {
                 return self.cuckooGet(byte_key);
             }
-            if (self.peek(start_depth, at_depth)) |own_key| {
+            if (self.peek(at_depth)) |own_key| {
                 if (own_key == byte_key) return @bitCast(Node, self);
             }
             return Node.none;
@@ -1134,7 +1044,7 @@ fn InnerNode(comptime bucket_count: u8) type {
         }
 
         fn cuckooPut(self: Head, node: Node) ?Node {
-            var byte_key = node.peekFirst();
+            var byte_key = node.peek(self.branch_depth);
             self.body.child_set.set(byte_key);
 
             const growable = (bucket_count != max_bucket_count);
@@ -1159,12 +1069,12 @@ fn InnerNode(comptime bucket_count: u8) type {
                     attempts += 1;
                     entry = self.body.buckets[bucket_index].displaceRandomly(random, entry);
                     self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
-                    byte_key = entry.peekFirst();
+                    byte_key = entry.peek(self.branch_depth);
                     use_rand_hash = !self.body.rand_hash_used.isSet(byte_key);
                 } else {
                     entry = self.body.buckets[bucket_index].displaceRandHashOnly(&self.body.rand_hash_used, entry);
                     self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
-                    byte_key = entry.peekFirst();
+                    byte_key = entry.peek(self.branch_depth);
                 }
             }
             unreachable;
@@ -1178,89 +1088,264 @@ fn InnerNode(comptime bucket_count: u8) type {
         fn cuckooGet(self: Head, byte_key: u8) Node {
             assert(self.body.child_set.isSet(byte_key));
             const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-            return self.body.buckets[bucket_index].get(byte_key);
+            return self.body.buckets[bucket_index].get(self.branch_depth, byte_key);
         }
 
         fn cuckooUpdate(self: Head, node: Node) void {
-            const byte_key = node.peekFirst();
+            const byte_key = node.peek(self.branch_depth);
             const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
             self.body.buckets[bucket_index].update(node);
         }
     };
 }
 
-fn InitLeafNode(start_depth: u8, key: [key_length]u8, opt_value: ?T, allocator: std.mem.Allocator) allocError!Node {
-    const suffix_length = key_length - start_depth;
-    if (opt_value) |value| {
-        if (suffix_length <= 8) {
-            return @bitCast(Node, try LeafNode(false, 8).init(start_depth, key, value, allocator));
-        }
-        if (suffix_length <= 16) {
-            return @bitCast(Node, try LeafNode(false, 16).init(start_depth, key, value, allocator));
-        }
-        if (suffix_length <= 24) {
-            return @bitCast(Node, try LeafNode(false, 24).init(start_depth, key, value, allocator));
-        }
-        if (suffix_length <= 32) {
-            return @bitCast(Node, try LeafNode(false, 32).init(start_depth, key, value, allocator));
-        }
-        if (suffix_length <= 40) {
-            return @bitCast(Node, try LeafNode(false, 40).init(start_depth, key, value, allocator));
-        }
-        if (suffix_length <= 48) {
-            return @bitCast(Node, try LeafNode(false, 48).init(start_depth, key, value, allocator));
-        }
-        if (suffix_length <= 54) {
-            return @bitCast(Node, try LeafNode(false, 56).init(start_depth, key, value, allocator));
-        }
-        if (suffix_length <= 64) {
-            return @bitCast(Node, try LeafNode(false, 64).init(start_depth, key, value, allocator));
-        }
-    } else {
-        if (suffix_length <= InlineLeafNode.head_suffix_len) {
-            return @bitCast(Node, try InlineLeafNode.init(start_depth, key));
-        }
-        if (suffix_length <= 16) {
-            return @bitCast(Node, try LeafNode(true, 16).init(start_depth, key, void{}, allocator));
-        }
-        if (suffix_length <= 24) {
-            return @bitCast(Node, try LeafNode(true, 24).init(start_depth, key, void{}, allocator));
-        }
-        if (suffix_length <= 32) {
-            return @bitCast(Node, try LeafNode(true, 32).init(start_depth, key, void{}, allocator));
-        }
-        if (suffix_length <= 40) {
-            return @bitCast(Node, try LeafNode(true, 40).init(start_depth, key, void{}, allocator));
-        }
-        if (suffix_length <= 48) {
-            return @bitCast(Node, try LeafNode(true, 48).init(start_depth, key, void{}, allocator));
-        }
-        if (suffix_length <= 54) {
-            return @bitCast(Node, try LeafNode(true, 56).init(start_depth, key, void{}, allocator));
-        }
-        if (suffix_length <= 64) {
-            return @bitCast(Node, try LeafNode(true, 64).init(start_depth, key, void{}, allocator));
-        }
+fn WrapInfixNode(branch_depth: u8, key: *const [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Node {
+    const child_depth = child.depth();
+    const child_range = child.range();
+
+    if(branch_depth <= child_range) {
+        return child;
+    }
+
+    const infix_length = child_range - branch_depth;
+    
+    if (infix_length <= 8) {
+        return @bitCast(Node, try InfixNode(8).init(branch_depth, key, child, allocator));
+    }
+    if (infix_length <= 16) {
+        return @bitCast(Node, try InfixNode(16).init(branch_depth, key, child, allocator));
+    }
+    if (infix_length <= 24) {
+        return @bitCast(Node, try InfixNode(24).init(branch_depth, key, child, allocator));
+    }
+    if (infix_length <= 32) {
+        return @bitCast(Node, try InfixNode(32).init(branch_depth, key, child, allocator));
+    }
+    if (infix_length <= 40) {
+        return @bitCast(Node, try InfixNode(40).init(branch_depth, key, child, allocator));
+    }
+    if (infix_length <= 48) {
+        return @bitCast(Node, try InfixNode(48).init(branch_depth, key, child, allocator));
+    }
+    if (infix_length <= 54) {
+        return @bitCast(Node, try InfixNode(56).init(branch_depth, key, child, allocator));
+    }
+    if (infix_length <= 64) {
+        return @bitCast(Node, try InfixNode(64).init(branch_depth, key, child, allocator));
     }
 
     unreachable;
 }
 
-const InlineLeafNode = extern struct {
-    const head_suffix_len = 15;
+fn InfixNode(comptime infix_len: u8) type {
+    const head_infix_len = 5;
+    const body_infix_len = infix_len - head_infix_len;
+    return extern struct {
+        tag: NodeTag = Node.branchNodeTag(bucket_count),
 
-    tag: NodeTag = .twig15,
+        body: *Body,
+
+        depth: u8,
+
+        infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
+
+        const Head = @This();
+        const Body = extern struct {
+            child: Node = Node.none,
+            ref_count: u16 = 1,
+            infix: [body_infix_len]u8 = undefined,
+        };
+
+        pub fn init(start_depth: u8, key: *const [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Head {
+            const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+            const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
+
+            new_body.* = Body{ .child = child };
+
+            const child_range = child.range();
+            const body_infix_length = @minimum(child_depth, body_infix_len);
+            const body_infix_start = body_infix_len - body_infix_length;
+            const body_key_start = child_depth - body_infix_length;
+            mem.copy(u8, new_body.infix[body_infix_start..new_body.infix.len], key[body_key_start..child_depth]);
+
+            var new_head = Head{ .child_depth = child_depth, .body = new_body };
+
+            const head_infix_length = @minimum(child_depth - start_depth, head_infix_len);
+            const key_end = start_depth + head_infix_length;
+            mem.copy(u8, new_head.infix[0..head_infix_length], key[start_depth..key_end]);
+
+            std.debug.print("{s}\n", .{std.fmt.fmtSliceHexUpper(std.mem.asBytes(&new_body.child))});
+
+            return new_head;
+        }
+
+        pub fn format(
+            self: Head,
+            comptime fmt: []const u8,
+            options: std.fmt.FormatOptions,
+            writer: anytype,
+        ) !void {
+            _ = self;
+            _ = fmt;
+            _ = options;
+            try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
+            try writer.print("  infixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{
+                head_infix_len, body_infix_len,
+                std.fmt.fmtSliceHexUpper(&self.infix),
+                std.fmt.fmtSliceHexUpper(&self.body.infix) });
+        }
+
+        fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
+            const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+            const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
+            new_body.* = self.body.*;
+            new_body.ref_count = 1;
+            
+            if(try new_body.child.ref(allocator)) |new_child| {
+                new_body.child = new_child;
+            }
+
+            return Head{ .child_depth = self.child_depth, .infix = self.infix, .body = new_body };
+        }
+
+        pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
+            if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
+                // Reference counter exhausted, we need to make a copy of this node.
+                return @bitCast(Node, try self.copy(allocator));
+            } else {
+                self.body.ref_count += 1;
+                return null;
+            }
+        }
+
+        pub fn rel(self: Head, allocator: std.mem.Allocator) void {
+            self.body.ref_count -= 1;
+            if (self.body.ref_count == 0) {
+                self.body.child.rel(allocator);
+                allocator.free(std.mem.asBytes(self.body));
+            }
+        }
+
+        pub fn count(self: Head) u64 {
+            return self.body.child.count();
+        }
+
+        pub fn hash(self: Head, prefix: [key_length]u8) Hash {
+            var key = prefix;
+            const key_start_head = self.depth - @minimum(infix_len, self.depth);
+            const key_start_body = self.depth - @minimum(body_infix_len, self.depth);
+
+            const infix_start_head = @minimum(head_infix_len, depth_to_infix(infix_len, self.depth, key_start_head));
+            const infix_start_body = depth_to_infix(body_infix_len, self.depth, key_start_body);
+
+            mem.copy(u8, key[key_start_head..key_start_body], self.infix[infix_start_head..]);
+            mem.copy(u8, key[key_start_body..self.depth], self.body.infix[infix_start_body..]);
+
+            return self.child.hash(key);
+        }
+
+        pub fn depth(self: Head) u8 {
+            return self.depth;
+        }
+
+        pub fn range(self: Head) u8 {
+            return self.depth - @minimum(self.depth, infix_len);
+        }
+
+        pub fn peek(self: Head, at_depth: u8) ?u8 {
+            if (self.depth < at_depth) return null;
+            const infix_index = depth_to_infix(infix_len, self.depth, at_depth);
+            if(infix_index <= head_infix_len) {
+                return self.infix[infix_index];
+            }
+            return self.body.infix[infix_index - head_infix_len];
+        }
+
+        pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
+            if (self.peek(at_depth)) |byte_key| {
+                result_set.singleIntersect(byte_key);
+                return;
+            }
+
+            result_set.unsetAll();
+        }
+
+        pub fn get(self: Head, at_depth: u8, key: u8) Node {
+            if (self.peek(at_depth)) |own_key| {
+                if (own_key == key) {
+                    if (at_depth == self.depth) {
+                        return self.body.child;
+                    } else {
+                        return @bitCast(Node, self);
+                    }
+                } 
+            }
+            
+            return Node.none;
+        }
+
+        pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            const single_owner = parent_single_owner and self.body.ref_count == 1;
+
+            var branch_depth = start_depth;
+            while (branch_depth <= self.depth) : (branch_depth += 1) {
+                if (key[branch_depth] != self.peek(branch_depth).?) break;
+            } else {
+                // The entire compressed infix above this node matched with the key.
+                const old_child = self.body.child;
+                const old_child_hash = old_child.hash(key);
+                const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
+                const new_child_hash = new_child.hash(key);
+                if (Hash.equal(old_child_hash, new_child_hash)) {
+                    std.debug.print("Key already in tree. Hash is equal.\n{s}\n{s}\n", .{ std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data) });
+                    return @bitCast(Node, self);
+                }
+
+                if(new_child.range() != (self.depth + 1)) {
+                    return try WrapInfixNode(start_depth, key, new_child, allocator);
+                }
+
+                var self_or_copy = self;
+                if (!single_owner) {
+                    self_or_copy = try self.copy(allocator);
+                    old_child.rel(allocator);
+                }
+                self_or_copy.body.child = new_child;
+                return @bitCast(Node, self_or_copy);
+            }
+
+            const sibling_leaf_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
+            const child_node = try WrapInfixNode(branch_depth, key, self.body.child, allocator);
+            const branch_node_above = try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, child_node, allocator);
+
+            return try WrapInfixNode(start_depth, key, branch_node_above, allocator);
+        }
+    };
+}
+
+fn InitLeafOrTwigNode(key: *const [key_length]u8, maybe_value: ?T) Node {
+    if (maybe_value) |value| {
+        return @bitCast(Node, LeafNode.init(key, value));
+    } else {
+        return @bitCast(Node, TwigNode.init(key));
+    }
+}
+
+const LeafNode = extern struct {
+    pub const suffix_len = 15 - @sizeOf(T); // TODO Check that this doesn't underflow.
+    const key_start = key_length - suffix_len;
+
+    tag: NodeTag = .twig,
     /// The key stored in this entry.
-    suffix: [head_suffix_len]u8 = [_]u8{0} ** head_suffix_len,
+    suffix: [suffix_len]u8 = [_]u8{0} ** suffix_len,
+    value: T,
 
     const Head = @This();
 
-    pub fn init(start_depth: u8, key: [key_length]u8) allocError!Head {
-        var new_head = Head{};
+    pub fn init(key: [key_length]u8, value: T) allocError!Head {
+        var new_head = Head{.value = value};
 
-        const head_suffix_length = @minimum(key.len - start_depth, new_head.suffix.len);
-        const key_end = start_depth + head_suffix_length;
-        mem.copy(u8, new_head.suffix[0..head_suffix_length], key[start_depth..key_end]);
+        mem.copy(u8, new_head.suffix[..suffix_len], key[key_start..]);
 
         return new_head;
     }
@@ -1274,7 +1359,9 @@ const InlineLeafNode = extern struct {
         _ = self;
         _ = fmt;
         _ = options;
-        try writer.print("Inline suffix: {[1]s:_>[0]}\n", .{ head_suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix) });
+        try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{
+            suffix_len,
+            std.fmt.fmtSliceHexUpper(&self.suffix) });
     }
 
     pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -1293,12 +1380,14 @@ const InlineLeafNode = extern struct {
         return 1;
     }
 
-    pub fn hash(self: Head, start_depth: u8, prefix: [key_length]u8) Hash {
+    pub fn hash(self: Head, prefix: [key_length]u8) Hash {
         var key = prefix;
-        for (key[start_depth..key_length]) |*byte, i| {
-            byte.* = self.peek(start_depth, start_depth + @intCast(u8, i)) orelse unreachable;
-        }
+        mem.copy(u8, key[key_start..], self.suffix[..]);
         return keyHash(&key);
+    }
+
+    pub fn range(self: Head) u8 {
+        return key_length - suffix_len;
     }
 
     pub fn depth(self: Head) u8 {
@@ -1306,17 +1395,13 @@ const InlineLeafNode = extern struct {
         return key_length;
     }
 
-    pub fn peekFirst(self: Head) u8 {
-        return self.suffix[0];
+    pub fn peek(self: Head, at_depth: u8) ?u8 {
+        if (key_length <= at_depth) return null;
+        return self.suffix[at_depth - key_start];
     }
 
-    pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-        if (at_depth < start_depth or key_length <= at_depth) return null;
-        return self.suffix[at_depth - start_depth];
-    }
-
-    pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
-        if (self.peek(start_depth, at_depth)) |byte_key| {
+    pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+        if (self.peek(at_depth)) |byte_key| {
             result_set.singleIntersect(byte_key);
             return;
         }
@@ -1324,8 +1409,8 @@ const InlineLeafNode = extern struct {
         result_set.unsetAll();
     }
 
-    pub fn get(self: Head, start_depth: u8, at_depth: u8, key: u8) Node {
-        if (self.peek(start_depth, at_depth)) |own_key| {
+    pub fn get(self: Head, at_depth: u8, key: u8) Node {
+        if (self.peek(at_depth)) |own_key| {
             if (own_key == key) return @bitCast(Node, self);
         }
         return Node.none;
@@ -1336,7 +1421,7 @@ const InlineLeafNode = extern struct {
 
         var branch_depth = start_depth;
         while (branch_depth < key_length) : (branch_depth += 1) {
-            if (key[branch_depth] != self.peek(start_depth, branch_depth).?) break;
+            if (key[branch_depth] != self.peek(branch_depth).?) break;
         } else {
             return @bitCast(Node, self);
         }
@@ -1344,167 +1429,120 @@ const InlineLeafNode = extern struct {
         var recycled_self = self;
 
         for (recycled_self.suffix) |*byte, i| {
-            byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
+            byte.* = self.peek(branch_depth + @intCast(u8, i)) orelse break;
         }
 
-        const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
+        const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-        return try InnerNode(1).initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
+        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
     }
 };
 
-fn LeafNode(comptime no_value: bool, comptime suffix_len: u8) type {
-    const head_suffix_len = 7;
-    const body_suffix_len = suffix_len - head_suffix_len;
-    return extern struct {
-        tag: NodeTag = Node.leafNodeTag(no_value, suffix_len),
-        /// The key stored in this entry.
-        suffix: [head_suffix_len]u8 = [_]u8{0} ** head_suffix_len,
-        /// The address of the pointer associated with the key.
-        body: *Body,
+const TwigNode = extern struct {
+    const suffix_len = 15;
+    const key_start = key_length - suffix_len;
 
-        const Head = @This();
-        const Body = if (no_value) extern struct {
-            ref_count: u16 = 1,
-            suffix: [body_suffix_len]u8 = undefined,
-        } else extern struct {
-            value: T,
-            ref_count: u16 = 1,
-            suffix: [body_suffix_len]u8 = undefined,
-        };
+    tag: NodeTag = .twig,
+    /// The key stored in this entry.
+    suffix: [suffix_len]u8 = [_]u8{0} ** suffix_len,
 
-        pub fn init(start_depth: u8, key: [key_length]u8, value: if (no_value) void else T, allocator: std.mem.Allocator) allocError!Head {
-            const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
-            const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
+    const Head = @This();
 
-            if (no_value) {
-                new_body.* = Body{};
-            } else {
-                new_body.* = Body{ .value = value };
-            }
+    pub fn init(key: [key_length]u8) allocError!Head {
+        var new_head = Head{};
 
-            const key_start = (key.len - new_body.suffix.len);
-            mem.copy(u8, new_body.suffix[0..new_body.suffix.len], key[key_start..key.len]);
+        mem.copy(u8, new_head.suffix[..suffix_len], key[key_start..]);
 
-            var new_head = Head{ .body = new_body };
+        return new_head;
+    }
 
-            const head_suffix_length = @minimum(key.len - start_depth, new_head.suffix.len);
-            const key_end = start_depth + head_suffix_length;
-            mem.copy(u8, new_head.suffix[0..head_suffix_length], key[start_depth..key_end]);
+    pub fn format(
+        self: Head,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = self;
+        _ = fmt;
+        _ = options;
+        try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{
+            suffix_len,
+            std.fmt.fmtSliceHexUpper(&self.suffix) });
+    }
 
-            return new_head;
+    pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
+        _ = self;
+        _ = allocator;
+        return null;
+    }
+
+    pub fn rel(self: Head, allocator: std.mem.Allocator) void {
+        _ = self;
+        _ = allocator;
+    }
+
+    pub fn count(self: Head) u64 {
+        _ = self;
+        return 1;
+    }
+
+    pub fn hash(self: Head, prefix: [key_length]u8) Hash {
+        var key = prefix;
+        mem.copy(u8, key[key_start..], self.suffix[..]);
+        return keyHash(&key);
+    }
+    
+    pub fn range(self: Head) u8 {
+        return key_length - suffix_len;
+    }
+
+    pub fn depth(self: Head) u8 {
+        _ = self;
+        return key_length;
+    }
+
+    pub fn peek(self: Head, at_depth: u8) ?u8 {
+        if (key_length <= at_depth) return null;
+        return self.suffix[at_depth - key_start];
+    }
+
+    pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+        if (self.peek(at_depth)) |byte_key| {
+            result_set.singleIntersect(byte_key);
+            return;
         }
 
-        pub fn format(
-            self: Head,
-            comptime fmt: []const u8,
-            options: std.fmt.FormatOptions,
-            writer: anytype,
-        ) !void {
-            _ = self;
-            _ = fmt;
-            _ = options;
-            try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
-            if (no_value) {
-                try writer.print("  value: null\n", .{});
-            } else {
-                try writer.print("  value: {}\n", .{self.body.value});
-            }
-            try writer.print("  suffixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{ head_suffix_len, body_suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix), std.fmt.fmtSliceHexUpper(&self.body.suffix) });
+        result_set.unsetAll();
+    }
+
+    pub fn get(self: Head, at_depth: u8, key: u8) Node {
+        if (self.peek(at_depth)) |own_key| {
+            if (own_key == key) return @bitCast(Node, self);
+        }
+        return Node.none;
+    }
+
+    pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+        _ = single_owner;
+
+        var branch_depth = start_depth;
+        while (branch_depth < key_length) : (branch_depth += 1) {
+            if (key[branch_depth] != self.peek(branch_depth).?) break;
+        } else {
+            return @bitCast(Node, self);
         }
 
-        pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
-            if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
-                // Reference counter exhausted, we need to make a copy of this node.
-                const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
-                const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
-                new_body.* = self.body.*;
-                new_body.ref_count = 1;
+        var recycled_self = self;
 
-                return @bitCast(Node, Head{ .suffix = self.suffix, .body = new_body });
-            } else {
-                self.body.ref_count += 1;
-                return null;
-            }
+        for (recycled_self.suffix) |*byte, i| {
+            byte.* = self.peek(branch_depth + @intCast(u8, i)) orelse break;
         }
 
-        pub fn rel(self: Head, allocator: std.mem.Allocator) void {
-            self.body.ref_count -= 1;
-            if (self.body.ref_count == 0) {
-                defer allocator.free(std.mem.asBytes(self.body));
-            }
-        }
+        const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-        pub fn count(self: Head) u64 {
-            _ = self;
-            return 1;
-        }
-
-        pub fn hash(self: Head, start_depth: u8, prefix: [key_length]u8) Hash {
-            var key = prefix;
-            for (key[start_depth..key_length]) |*byte, i| {
-                byte.* = self.peek(start_depth, start_depth + @intCast(u8, i)) orelse unreachable;
-            }
-            return keyHash(&key);
-        }
-
-        pub fn depth(self: Head) u8 {
-            _ = self;
-            return key_length;
-        }
-
-        pub fn peekFirst(self: Head) u8 {
-            return self.suffix[0];
-        }
-
-        pub fn peek(self: Head, start_depth: u8, at_depth: u8) ?u8 {
-            if (at_depth < start_depth or key_length <= at_depth) return null;
-            if (at_depth < start_depth + head_suffix_len) {
-                const head_suffix_depth = at_depth - start_depth;
-                return self.suffix[head_suffix_depth];
-            }
-            const body_suffix_depth = at_depth - (key_length - body_suffix_len);
-            return self.body.suffix[body_suffix_depth];
-        }
-
-        pub fn propose(self: Head, start_depth: u8, at_depth: u8, result_set: *ByteBitset) void {
-            if (self.peek(start_depth, at_depth)) |byte_key| {
-                result_set.singleIntersect(byte_key);
-                return;
-            }
-
-            result_set.unsetAll();
-        }
-
-        pub fn get(self: Head, start_depth: u8, at_depth: u8, key: u8) Node {
-            if (self.peek(start_depth, at_depth)) |own_key| {
-                if (own_key == key) return @bitCast(Node, self);
-            }
-            return Node.none;
-        }
-
-        pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
-            _ = single_owner;
-            if (body_suffix_len == 0) unreachable;
-
-            var branch_depth = start_depth;
-            while (branch_depth < key_length) : (branch_depth += 1) {
-                if (key[branch_depth] != self.peek(start_depth, branch_depth).?) break;
-            } else {
-                return @bitCast(Node, self);
-            }
-
-            var recycled_self = self;
-            for (recycled_self.suffix) |*byte, i| {
-                byte.* = self.peek(start_depth, branch_depth + @intCast(u8, i)) orelse break;
-            }
-
-            const sibling_leaf_node = try InitLeafNode(branch_depth, key, value, allocator);
-
-            return try InnerNode(1).initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
-        }
-    };
-}
+        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
+    }
+};
 
 pub const Tree = struct {
     child: Node = Node{ .none = .{} },
@@ -1535,7 +1573,7 @@ pub const Tree = struct {
                     var branches = &self.branch_state[exhausted_depth];
                     if (branches.drainNext(true)) |branch_key| {
                         self.start_points.set(exhausted_depth);
-                        self.path[exhausted_depth] = self.path[parent_depth].get(parent_depth, exhausted_depth, branch_key);
+                        self.path[exhausted_depth] = self.path[parent_depth].get(exhausted_depth, branch_key);
                         assert(self.path[exhausted_depth].unknown.tag != .none);
                         break;
                     } else {
@@ -1547,10 +1585,10 @@ pub const Tree = struct {
 
             var branches = &self.branch_state[branch_depth];
             branches.setAll();
-            node.propose(start_depth, branch_depth, branches);
+            node.propose(branch_depth, branches);
 
             const branch_key = branches.drainNext(true).?;
-            self.path[branch_depth] = node.get(start_depth, branch_depth, branch_key);
+            self.path[branch_depth] = node.get(branch_depth, branch_key);
 
             self.start_points.set(branch_depth);
             return IterationResult{ .start_depth = start_depth, .node = node, .key = self.key };
@@ -1591,114 +1629,135 @@ pub const Tree = struct {
 
         var card = Card.from(
             \\┌────────────────────────────────────────────────────────────────────────────────┐
-            \\│  Tree                                                                          │
-            \\│ ━━━━━━                                                                         │
+            \\│ Tree                                                                           │
+            \\│━━━━━━                                                                          │
             \\│                                                                                │
-            \\│         Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀      Memory (keys): 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃           │
-            \\│    Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Memory (actual): 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄           │
-            \\│   Alloc Count: 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂           Overhead: 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅           │
+            \\│        Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀      Memory (keys): 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂            │
             \\│                                                                                │
-            \\│   Node Distribution                                                            │
-            \\│  ═══════════════════                                                           │
+            \\│   Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Memory (actual): 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄            │
             \\│                                                                                │
-            \\│      none 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆   leaf8 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  twig15 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖   │
-            \\│    inner1 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  leaf16 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  twig16 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗   │
-            \\│    inner2 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  leaf24 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐  twig24 󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘   │
-            \\│    inner4 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  leaf32 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑  twig32 󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙󰀙   │
-            \\│    inner8 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  leaf40 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒  twig40 󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚󰀚   │
-            \\│   inner16 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  leaf48 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓  twig48 󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛󰀛   │
-            \\│   inner32 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  leaf56 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔  twig56 󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜󰀜   │
-            \\│   inner64 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  leaf64 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕  twig64 󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝󰀝   │
+            \\│  Alloc Count: 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃        Compression: 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅            │
             \\│                                                                                │
-            \\│   Density                                                                      │
-            \\│  ═════════                                                                     │
-            \\│        ┐󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        │󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        ┘󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞󰀞       │
-            \\│        0┌──────────────┬───────────────┬───────────────┬───────────────┐63     │
+            \\│  Node Distribution                                   infix8 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐   │
+            \\│ ═══════════════════       branch1 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  infix16 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑   │
+            \\│                           branch2 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  infix24 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒   │
+            \\│                           branch4 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  infix32 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓   │
+            \\│                           branch8 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  infix40 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔   │
+            \\│   leaf 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆  branch16 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  infix48 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕   │
+            \\│   twig 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  branch32 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  infix56 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖   │
+            \\│   none 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  branch64 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  infix64 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗   │
+            \\│                                                                                │
+            \\│  Density                                                                       │
+            \\│ ═════════                                                                      │
+            \\│                                                                                │
+            \\│       ┐󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       ┘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+            \\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
             \\└────────────────────────────────────────────────────────────────────────────────┘
         ) catch unreachable;
 
+        const item_count = self.count();
+
+        var node_count: u64 = 0;
+
+        var alloc_count: u64 = 0;
+
+        var mem_keys: u64 = item_count * key_length;
+
+        var mem_actual: u64 = 0;
+
         var none_count: u64 = 0;
-        var inner_1_count: u64 = 0;
-        var inner_2_count: u64 = 0;
-        var inner_4_count: u64 = 0;
-        var inner_8_count: u64 = 0;
-        var inner_16_count: u64 = 0;
-        var inner_32_count: u64 = 0;
-        var inner_64_count: u64 = 0;
-        var leaf_8_count: u64 = 0;
-        var leaf_16_count: u64 = 0;
-        var leaf_24_count: u64 = 0;
-        var leaf_32_count: u64 = 0;
-        var leaf_40_count: u64 = 0;
-        var leaf_48_count: u64 = 0;
-        var leaf_56_count: u64 = 0;
-        var leaf_64_count: u64 = 0;
-        var twig_15_count: u64 = 0;
-        var twig_16_count: u64 = 0;
-        var twig_24_count: u64 = 0;
-        var twig_32_count: u64 = 0;
-        var twig_40_count: u64 = 0;
-        var twig_48_count: u64 = 0;
-        var twig_56_count: u64 = 0;
-        var twig_64_count: u64 = 0;
+        var twig_count: u64 = 0;
+        var leaf_count: u64 = 0;
+        var branch_1_count: u64 = 0;
+        var branch_2_count: u64 = 0;
+        var branch_4_count: u64 = 0;
+        var branch_8_count: u64 = 0;
+        var branch_16_count: u64 = 0;
+        var branch_32_count: u64 = 0;
+        var branch_64_count: u64 = 0;
+        var infix_8_count: u64 = 0;
+        var infix_16_count: u64 = 0;
+        var infix_24_count: u64 = 0;
+        var infix_32_count: u64 = 0;
+        var infix_40_count: u64 = 0;
+        var infix_48_count: u64 = 0;
+        var infix_56_count: u64 = 0;
+        var infix_64_count: u64 = 0;
 
         var density_at_depth: [key_length]u64 = [_]u64{0} ** key_length;
 
         var node_iter = self.nodes();
         while (node_iter.next()) |res| {
+            node_count += 1;
             density_at_depth[res.start_depth] += 1;
-            switch (res.node.unknown.tag) {
+            switch (res.node.tag) {
                 .none => none_count += 1,
-                .inner1 => inner_1_count += 1,
-                .inner2 => inner_2_count += 1,
-                .inner4 => inner_4_count += 1,
-                .inner8 => inner_8_count += 1,
-                .inner16 => inner_16_count += 1,
-                .inner32 => inner_32_count += 1,
-                .inner64 => inner_64_count += 1,
-                .leaf8 => leaf_8_count += 1,
-                .leaf16 => leaf_16_count += 1,
-                .leaf24 => leaf_24_count += 1,
-                .leaf32 => leaf_32_count += 1,
-                .leaf40 => leaf_40_count += 1,
-                .leaf48 => leaf_48_count += 1,
-                .leaf56 => leaf_56_count += 1,
-                .leaf64 => leaf_64_count += 1,
-                .twig15 => twig_15_count += 1,
-                .twig16 => twig_16_count += 1,
-                .twig24 => twig_24_count += 1,
-                .twig32 => twig_32_count += 1,
-                .twig40 => twig_40_count += 1,
-                .twig48 => twig_48_count += 1,
-                .twig56 => twig_56_count += 1,
-                .twig64 => twig_64_count += 1,
+                .leaf => leaf_count += 1,
+                .twig => twig_count += 1,
+                .branch1 => {
+                    branch_1_count += 1;
+                    alloc_count += 1;},
+                .branch2 => {
+                    branch_2_count += 1;
+                    alloc_count += 1;},
+                .branch4 => {
+                    branch_4_count += 1;
+                    alloc_count += 1;},
+                .branch8 => {
+                    branch_8_count += 1;
+                    alloc_count += 1;},
+                .branch16 => {
+                    branch_16_count += 1;
+                    alloc_count += 1;},
+                .branch32 => {
+                    branch_32_count += 1;
+                    alloc_count += 1;},
+                .branch64 => {
+                    branch_64_count += 1;
+                    alloc_count += 1;},
+                .infix8 => {
+                    infix_8_count += 1;
+                    alloc_count += 1;},
+                .infix16 => {
+                    infix_16_count += 1;
+                    alloc_count += 1;},
+                .infix24 => {
+                    infix_24_count += 1;
+                    alloc_count += 1;},
+                .infix32 => {
+                    infix_32_count += 1;
+                    alloc_count += 1;},
+                .infix40 => {
+                    infix_40_count += 1;
+                    alloc_count += 1;},
+                .infix48 => {
+                    infix_48_count += 1;
+                    alloc_count += 1;},
+                .infix56 => {
+                    infix_56_count += 1;
+                    alloc_count += 1;},
+                .infix64 => {
+                    infix_64_count += 1;
+                    alloc_count += 1;},
             }
         }
-
-        const node_count: u64 = none_count + inner_1_count + inner_2_count + inner_4_count + inner_8_count + inner_16_count + inner_32_count + inner_64_count + leaf_8_count + leaf_16_count + leaf_24_count + leaf_32_count + leaf_40_count + leaf_48_count + leaf_56_count + leaf_64_count + twig_15_count + twig_16_count + twig_24_count + twig_32_count + twig_40_count + twig_48_count + twig_56_count + twig_64_count;
-
-        const alloc_count: u64 = inner_1_count + inner_2_count + inner_4_count + inner_8_count + inner_16_count + inner_32_count + inner_64_count + leaf_8_count + leaf_16_count + leaf_24_count + leaf_32_count + leaf_40_count + leaf_48_count + leaf_56_count + leaf_64_count + twig_16_count + twig_24_count + twig_32_count + twig_40_count + twig_48_count + twig_56_count + twig_64_count;
-
-        var mem_keys: u64 = self.count() * key_length;
-
-        const mem_actual: u64 = inner_1_count * @sizeOf(InnerNode(1).Body) + inner_2_count * @sizeOf(InnerNode(2).Body) + inner_4_count * @sizeOf(InnerNode(4).Body) + inner_8_count * @sizeOf(InnerNode(8).Body) + inner_16_count * @sizeOf(InnerNode(16).Body) + inner_32_count * @sizeOf(InnerNode(32).Body) + inner_64_count * @sizeOf(InnerNode(64).Body) + leaf_8_count * @sizeOf(LeafNode(false, 8).Body) + leaf_16_count * @sizeOf(LeafNode(false, 16).Body) + leaf_24_count * @sizeOf(LeafNode(false, 24).Body) + leaf_32_count * @sizeOf(LeafNode(false, 32).Body) + leaf_40_count * @sizeOf(LeafNode(false, 40).Body) + leaf_48_count * @sizeOf(LeafNode(false, 48).Body) + leaf_56_count * @sizeOf(LeafNode(false, 56).Body) + leaf_64_count * @sizeOf(LeafNode(false, 64).Body) + twig_16_count * @sizeOf(LeafNode(true, 16).Body) + twig_24_count * @sizeOf(LeafNode(true, 24).Body) + twig_32_count * @sizeOf(LeafNode(true, 32).Body) + twig_40_count * @sizeOf(LeafNode(true, 40).Body) + twig_48_count * @sizeOf(LeafNode(true, 48).Body) + twig_56_count * @sizeOf(LeafNode(true, 56).Body) + twig_64_count * @sizeOf(LeafNode(true, 64).Body);
-
-        const mem_overhead: f64 = @intToFloat(f64, mem_actual) - @intToFloat(f64, mem_keys);
 
         var max_density: u64 = 0;
         for (density_at_depth) |density| {
             max_density = std.math.max(max_density, density);
         }
 
+        const mem_ratio: f64 = 0;//@intToFloat(f64, mem_keys) / @intToFloat(f64, mem_actual)
+
         var count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&count_data, "{d:_>16}", .{self.count()}) catch unreachable;
+        _ = std.fmt.bufPrint(&count_data, "{d:_>16}", .{ item_count }) catch unreachable;
         var count_iter = (std.unicode.Utf8View.init(&count_data) catch unreachable).iterator();
 
         var node_count_data: [16:0]u8 = undefined;
@@ -1717,107 +1776,83 @@ pub const Tree = struct {
         _ = std.fmt.bufPrint(&mem_actual_data, "{d:_>16}", .{mem_actual}) catch unreachable;
         var mem_actual_iter = (std.unicode.Utf8View.init(&mem_actual_data) catch unreachable).iterator();
 
-        var mem_overhead_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&mem_overhead_data, "{d:_>16}", .{mem_overhead}) catch unreachable;
-        var mem_overhead_iter = (std.unicode.Utf8View.init(&mem_overhead_data) catch unreachable).iterator();
+        var mem_ratio_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&mem_ratio_data, "{d:_>16}", .{mem_ratio}) catch unreachable;
+        var mem_ratio_iter = (std.unicode.Utf8View.init(&mem_ratio_data) catch unreachable).iterator();
 
         var none_count_data: [16:0]u8 = undefined;
         _ = std.fmt.bufPrint(&none_count_data, "{d:_>16}", .{none_count}) catch unreachable;
         var none_count_iter = (std.unicode.Utf8View.init(&none_count_data) catch unreachable).iterator();
 
-        var inner_1_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&inner_1_count_data, "{d:_>16}", .{inner_1_count}) catch unreachable;
-        var inner_1_count_iter = (std.unicode.Utf8View.init(&inner_1_count_data) catch unreachable).iterator();
+        var leaf_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&leaf_count_data, "{d:_>16}", .{leaf_count}) catch unreachable;
+        var leaf_count_iter = (std.unicode.Utf8View.init(&leaf_count_data) catch unreachable).iterator();
 
-        var inner_2_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&inner_2_count_data, "{d:_>16}", .{inner_2_count}) catch unreachable;
-        var inner_2_count_iter = (std.unicode.Utf8View.init(&inner_2_count_data) catch unreachable).iterator();
+        var twig_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&twig_count_data, "{d:_>16}", .{twig_count}) catch unreachable;
+        var twig_count_iter = (std.unicode.Utf8View.init(&twig_count_data) catch unreachable).iterator();
 
-        var inner_4_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&inner_4_count_data, "{d:_>16}", .{inner_4_count}) catch unreachable;
-        var inner_4_count_iter = (std.unicode.Utf8View.init(&inner_4_count_data) catch unreachable).iterator();
+        var branch_1_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&branch_1_count_data, "{d:_>16}", .{branch_1_count}) catch unreachable;
+        var branch_1_count_iter = (std.unicode.Utf8View.init(&branch_1_count_data) catch unreachable).iterator();
 
-        var inner_8_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&inner_8_count_data, "{d:_>16}", .{inner_8_count}) catch unreachable;
-        var inner_8_count_iter = (std.unicode.Utf8View.init(&inner_8_count_data) catch unreachable).iterator();
+        var branch_2_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&branch_2_count_data, "{d:_>16}", .{branch_2_count}) catch unreachable;
+        var branch_2_count_iter = (std.unicode.Utf8View.init(&branch_2_count_data) catch unreachable).iterator();
 
-        var inner_16_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&inner_16_count_data, "{d:_>16}", .{inner_16_count}) catch unreachable;
-        var inner_16_count_iter = (std.unicode.Utf8View.init(&inner_16_count_data) catch unreachable).iterator();
+        var branch_4_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&branch_4_count_data, "{d:_>16}", .{branch_4_count}) catch unreachable;
+        var branch_4_count_iter = (std.unicode.Utf8View.init(&branch_4_count_data) catch unreachable).iterator();
 
-        var inner_32_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&inner_32_count_data, "{d:_>16}", .{inner_32_count}) catch unreachable;
-        var inner_32_count_iter = (std.unicode.Utf8View.init(&inner_32_count_data) catch unreachable).iterator();
+        var branch_8_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&branch_8_count_data, "{d:_>16}", .{branch_8_count}) catch unreachable;
+        var branch_8_count_iter = (std.unicode.Utf8View.init(&branch_8_count_data) catch unreachable).iterator();
 
-        var inner_64_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&inner_64_count_data, "{d:_>16}", .{inner_64_count}) catch unreachable;
-        var inner_64_count_iter = (std.unicode.Utf8View.init(&inner_64_count_data) catch unreachable).iterator();
+        var branch_16_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&branch_16_count_data, "{d:_>16}", .{branch_16_count}) catch unreachable;
+        var branch_16_count_iter = (std.unicode.Utf8View.init(&branch_16_count_data) catch unreachable).iterator();
 
-        var leaf_8_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_8_count_data, "{d:_>16}", .{leaf_8_count}) catch unreachable;
-        var leaf_8_count_iter = (std.unicode.Utf8View.init(&leaf_8_count_data) catch unreachable).iterator();
+        var branch_32_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&branch_32_count_data, "{d:_>16}", .{branch_32_count}) catch unreachable;
+        var branch_32_count_iter = (std.unicode.Utf8View.init(&branch_32_count_data) catch unreachable).iterator();
 
-        var leaf_16_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_16_count_data, "{d:_>16}", .{leaf_16_count}) catch unreachable;
-        var leaf_16_count_iter = (std.unicode.Utf8View.init(&leaf_16_count_data) catch unreachable).iterator();
+        var branch_64_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&branch_64_count_data, "{d:_>16}", .{branch_64_count}) catch unreachable;
+        var branch_64_count_iter = (std.unicode.Utf8View.init(&branch_64_count_data) catch unreachable).iterator();
 
-        var leaf_24_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_24_count_data, "{d:_>16}", .{leaf_24_count}) catch unreachable;
-        var leaf_24_count_iter = (std.unicode.Utf8View.init(&leaf_24_count_data) catch unreachable).iterator();
+        var infix_8_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_8_count_data, "{d:_>16}", .{infix_8_count}) catch unreachable;
+        var infix_8_count_iter = (std.unicode.Utf8View.init(&infix_8_count_data) catch unreachable).iterator();
 
-        var leaf_32_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_32_count_data, "{d:_>16}", .{leaf_32_count}) catch unreachable;
-        var leaf_32_count_iter = (std.unicode.Utf8View.init(&leaf_32_count_data) catch unreachable).iterator();
+        var infix_16_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_16_count_data, "{d:_>16}", .{infix_16_count}) catch unreachable;
+        var infix_16_count_iter = (std.unicode.Utf8View.init(&infix_16_count_data) catch unreachable).iterator();
 
-        var leaf_40_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_40_count_data, "{d:_>16}", .{leaf_40_count}) catch unreachable;
-        var leaf_40_count_iter = (std.unicode.Utf8View.init(&leaf_40_count_data) catch unreachable).iterator();
+        var infix_24_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_24_count_data, "{d:_>16}", .{infix_24_count}) catch unreachable;
+        var infix_24_count_iter = (std.unicode.Utf8View.init(&infix_24_count_data) catch unreachable).iterator();
 
-        var leaf_48_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_48_count_data, "{d:_>16}", .{leaf_48_count}) catch unreachable;
-        var leaf_48_count_iter = (std.unicode.Utf8View.init(&leaf_48_count_data) catch unreachable).iterator();
+        var infix_32_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_32_count_data, "{d:_>16}", .{infix_32_count}) catch unreachable;
+        var infix_32_count_iter = (std.unicode.Utf8View.init(&infix_32_count_data) catch unreachable).iterator();
 
-        var leaf_56_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_56_count_data, "{d:_>16}", .{leaf_56_count}) catch unreachable;
-        var leaf_56_count_iter = (std.unicode.Utf8View.init(&leaf_56_count_data) catch unreachable).iterator();
+        var infix_40_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_40_count_data, "{d:_>16}", .{infix_40_count}) catch unreachable;
+        var infix_40_count_iter = (std.unicode.Utf8View.init(&infix_40_count_data) catch unreachable).iterator();
 
-        var leaf_64_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_64_count_data, "{d:_>16}", .{leaf_64_count}) catch unreachable;
-        var leaf_64_count_iter = (std.unicode.Utf8View.init(&leaf_64_count_data) catch unreachable).iterator();
+        var infix_48_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_48_count_data, "{d:_>16}", .{infix_48_count}) catch unreachable;
+        var infix_48_count_iter = (std.unicode.Utf8View.init(&infix_48_count_data) catch unreachable).iterator();
 
-        var twig_15_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_15_count_data, "{d:_>16}", .{twig_15_count}) catch unreachable;
-        var twig_15_count_iter = (std.unicode.Utf8View.init(&twig_15_count_data) catch unreachable).iterator();
+        var infix_56_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_56_count_data, "{d:_>16}", .{infix_56_count}) catch unreachable;
+        var infix_56_count_iter = (std.unicode.Utf8View.init(&infix_56_count_data) catch unreachable).iterator();
 
-        var twig_16_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_16_count_data, "{d:_>16}", .{twig_16_count}) catch unreachable;
-        var twig_16_count_iter = (std.unicode.Utf8View.init(&twig_16_count_data) catch unreachable).iterator();
+        var infix_64_count_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&infix_64_count_data, "{d:_>16}", .{infix_64_count}) catch unreachable;
+        var infix_64_count_iter = (std.unicode.Utf8View.init(&infix_64_count_data) catch unreachable).iterator();
 
-        var twig_24_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_24_count_data, "{d:_>16}", .{twig_24_count}) catch unreachable;
-        var twig_24_count_iter = (std.unicode.Utf8View.init(&twig_24_count_data) catch unreachable).iterator();
-
-        var twig_32_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_32_count_data, "{d:_>16}", .{twig_32_count}) catch unreachable;
-        var twig_32_count_iter = (std.unicode.Utf8View.init(&twig_32_count_data) catch unreachable).iterator();
-
-        var twig_40_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_40_count_data, "{d:_>16}", .{twig_40_count}) catch unreachable;
-        var twig_40_count_iter = (std.unicode.Utf8View.init(&twig_40_count_data) catch unreachable).iterator();
-
-        var twig_48_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_48_count_data, "{d:_>16}", .{twig_48_count}) catch unreachable;
-        var twig_48_count_iter = (std.unicode.Utf8View.init(&twig_48_count_data) catch unreachable).iterator();
-
-        var twig_56_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_56_count_data, "{d:_>16}", .{twig_56_count}) catch unreachable;
-        var twig_56_count_iter = (std.unicode.Utf8View.init(&twig_56_count_data) catch unreachable).iterator();
-
-        var twig_64_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_64_count_data, "{d:_>16}", .{twig_64_count}) catch unreachable;
-        var twig_64_count_iter = (std.unicode.Utf8View.init(&twig_64_count_data) catch unreachable).iterator();
-
-        const density_pos = card.findTopLeft('\u{F001E}').?;
+        const density_pos = card.findTopLeft('\u{F0019}').?;
 
         for (card.grid) |*row, global_y| {
             for (row.*) |*cell, global_x| {
@@ -1827,32 +1862,26 @@ pub const Tree = struct {
                     '\u{F0002}' => alloc_count_iter.nextCodepoint().?,
                     '\u{F0003}' => mem_keys_iter.nextCodepoint().?,
                     '\u{F0004}' => mem_actual_iter.nextCodepoint().?,
-                    '\u{F0005}' => mem_overhead_iter.nextCodepoint().?,
+                    '\u{F0005}' => mem_ratio_iter.nextCodepoint().?,
                     '\u{F0006}' => none_count_iter.nextCodepoint().?,
-                    '\u{F0007}' => inner_1_count_iter.nextCodepoint().?,
-                    '\u{F0008}' => inner_2_count_iter.nextCodepoint().?,
-                    '\u{F0009}' => inner_4_count_iter.nextCodepoint().?,
-                    '\u{F000A}' => inner_8_count_iter.nextCodepoint().?,
-                    '\u{F000B}' => inner_16_count_iter.nextCodepoint().?,
-                    '\u{F000C}' => inner_32_count_iter.nextCodepoint().?,
-                    '\u{F000D}' => inner_64_count_iter.nextCodepoint().?,
-                    '\u{F000E}' => leaf_8_count_iter.nextCodepoint().?,
-                    '\u{F000F}' => leaf_16_count_iter.nextCodepoint().?,
-                    '\u{F0010}' => leaf_24_count_iter.nextCodepoint().?,
-                    '\u{F0011}' => leaf_32_count_iter.nextCodepoint().?,
-                    '\u{F0012}' => leaf_40_count_iter.nextCodepoint().?,
-                    '\u{F0013}' => leaf_48_count_iter.nextCodepoint().?,
-                    '\u{F0014}' => leaf_56_count_iter.nextCodepoint().?,
-                    '\u{F0015}' => leaf_64_count_iter.nextCodepoint().?,
-                    '\u{F0016}' => twig_15_count_iter.nextCodepoint().?,
-                    '\u{F0017}' => twig_16_count_iter.nextCodepoint().?,
-                    '\u{F0018}' => twig_24_count_iter.nextCodepoint().?,
-                    '\u{F0019}' => twig_32_count_iter.nextCodepoint().?,
-                    '\u{F001A}' => twig_40_count_iter.nextCodepoint().?,
-                    '\u{F001B}' => twig_48_count_iter.nextCodepoint().?,
-                    '\u{F001C}' => twig_56_count_iter.nextCodepoint().?,
-                    '\u{F001D}' => twig_64_count_iter.nextCodepoint().?,
-                    '\u{F001E}' => blk: {
+                    '\u{F0007}' => leaf_count_iter.nextCodepoint().?,
+                    '\u{F0008}' => twig_count_iter.nextCodepoint().?,
+                    '\u{F0009}' => branch_1_count_iter.nextCodepoint().?,
+                    '\u{F000A}' => branch_2_count_iter.nextCodepoint().?,
+                    '\u{F000B}' => branch_4_count_iter.nextCodepoint().?,
+                    '\u{F000C}' => branch_8_count_iter.nextCodepoint().?,
+                    '\u{F000D}' => branch_16_count_iter.nextCodepoint().?,
+                    '\u{F000E}' => branch_32_count_iter.nextCodepoint().?,
+                    '\u{F000F}' => branch_64_count_iter.nextCodepoint().?,
+                    '\u{F0010}' => infix_8_count_iter.nextCodepoint().?,
+                    '\u{F0011}' => infix_16_count_iter.nextCodepoint().?,
+                    '\u{F0012}' => infix_24_count_iter.nextCodepoint().?,
+                    '\u{F0013}' => infix_32_count_iter.nextCodepoint().?,
+                    '\u{F0014}' => infix_40_count_iter.nextCodepoint().?,
+                    '\u{F0015}' => infix_48_count_iter.nextCodepoint().?,
+                    '\u{F0016}' => infix_56_count_iter.nextCodepoint().?,
+                    '\u{F0017}' => infix_64_count_iter.nextCodepoint().?,
+                    '\u{F0018}' => blk: {
                         const x: u64 = global_x - density_pos.x;
                         const y: u64 = global_y - density_pos.y;
 
@@ -1877,7 +1906,7 @@ pub const Tree = struct {
 
     pub fn put(self: *Tree, key: [key_length]u8, value: ?T) allocError!void {
         if (self.child.isNone()) {
-            self.child = try InitLeafNode(0, key, value, self.allocator);
+            self.child = try WrapInfixNode(0, key, InitLeafOrTwigNode(key, value), allocator);
         } else {
             self.child = try self.child.put(0, key, value, true, self.allocator);
         }
@@ -1902,7 +1931,7 @@ pub const Tree = struct {
     }
 
     pub fn isEqual(self: *Tree, other: *Tree) bool {
-      return this.child.hash(0, undefined).equal(other.child.hash(0, undefined));
+      return this.child.hash(undefined).equal(other.child.hash(undefined));
     }
 
     // isSubsetOf(other) {
@@ -1983,20 +2012,20 @@ pub const Tree = struct {
 
 test "Alignment & Size" {
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ Node, @sizeOf(Node), @alignOf(Node) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(1).Head, @sizeOf(InnerNode(1).Head), @alignOf(InnerNode(1).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(2).Head, @sizeOf(InnerNode(2).Head), @alignOf(InnerNode(2).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(4).Head, @sizeOf(InnerNode(4).Head), @alignOf(InnerNode(4).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(8).Head, @sizeOf(InnerNode(8).Head), @alignOf(InnerNode(8).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(16).Head, @sizeOf(InnerNode(16).Head), @alignOf(InnerNode(16).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(32).Head, @sizeOf(InnerNode(32).Head), @alignOf(InnerNode(32).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(64).Head, @sizeOf(InnerNode(64).Head), @alignOf(InnerNode(64).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(1).Body, @sizeOf(InnerNode(1).Body), @alignOf(InnerNode(1).Body) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(2).Body, @sizeOf(InnerNode(2).Body), @alignOf(InnerNode(2).Body) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(4).Body, @sizeOf(InnerNode(4).Body), @alignOf(InnerNode(4).Body) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(8).Body, @sizeOf(InnerNode(8).Body), @alignOf(InnerNode(8).Body) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(16).Body, @sizeOf(InnerNode(16).Body), @alignOf(InnerNode(16).Body) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(32).Body, @sizeOf(InnerNode(32).Body), @alignOf(InnerNode(32).Body) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ InnerNode(64).Body, @sizeOf(InnerNode(64).Body), @alignOf(InnerNode(64).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(1).Head, @sizeOf(BranchNode(1).Head), @alignOf(BranchNode(1).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(2).Head, @sizeOf(BranchNode(2).Head), @alignOf(BranchNode(2).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(4).Head, @sizeOf(BranchNode(4).Head), @alignOf(BranchNode(4).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(8).Head, @sizeOf(BranchNode(8).Head), @alignOf(BranchNode(8).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(16).Head, @sizeOf(BranchNode(16).Head), @alignOf(BranchNode(16).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(32).Head, @sizeOf(BranchNode(32).Head), @alignOf(BranchNode(32).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(64).Head, @sizeOf(BranchNode(64).Head), @alignOf(BranchNode(64).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(1).Body, @sizeOf(BranchNode(1).Body), @alignOf(BranchNode(1).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(2).Body, @sizeOf(BranchNode(2).Body), @alignOf(BranchNode(2).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(4).Body, @sizeOf(BranchNode(4).Body), @alignOf(BranchNode(4).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(8).Body, @sizeOf(BranchNode(8).Body), @alignOf(BranchNode(8).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(16).Body, @sizeOf(BranchNode(16).Body), @alignOf(BranchNode(16).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(32).Body, @sizeOf(BranchNode(32).Body), @alignOf(BranchNode(32).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(64).Body, @sizeOf(BranchNode(64).Body), @alignOf(BranchNode(64).Body) });
 }
 
 // test "create tree" {
