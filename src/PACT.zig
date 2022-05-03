@@ -603,7 +603,7 @@ fn BranchNode(comptime bucket_count: u8) type {
 
                 pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
                     for (self.slots) |slot| {
-                        if (slot.unknown.tag != .none and slot.peek(depth) == byte_key) {
+                        if (slot.unknown.tag != .none and ((slot.peek(depth).?) == byte_key)) {
                             return slot;
                         }
                     }
@@ -627,7 +627,7 @@ fn BranchNode(comptime bucket_count: u8) type {
                     entry: Node,
                 ) bool {
                     for (self.slots) |*slot| {
-                        if (slot.unknown.tag != .none and slot.peek(depth).? == entry.peek(depth).?) {
+                        if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
                             slot.* = entry;
                             return true;
                         }
@@ -654,7 +654,7 @@ fn BranchNode(comptime bucket_count: u8) type {
                     entry: Node,
                 ) void {
                     for (self.slots) |*slot| {
-                        if (slot.unknown.tag != .none and slot.peek(depth).? == entry.peek(depth).?) {
+                        if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
                             slot.* = entry;
                             return;
                         }
@@ -958,19 +958,18 @@ fn BranchNode(comptime bucket_count: u8) type {
                 }
             }
 
-            var recycled_self = self;
-            for (recycled_self.infix) |*byte, i| {
-                byte.* = self.peek(branch_depth + @intCast(u8, i)) orelse break;
-            }
-
             const sibling_leaf_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
 
-            return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
+            return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
         }
 
         pub fn get(self: Head, at_depth: u8, byte_key: u8) Node {
-            if (at_depth == self.branch_depth and self.cuckooHas(byte_key)) {
-                return self.cuckooGet(byte_key);
+            if (at_depth == self.branch_depth) {
+                if (self.cuckooHas(byte_key)) {
+                    return self.cuckooGet(byte_key);
+                } else {
+                    return Node.none;
+                }
             }
             if (self.peek(at_depth)) |own_key| {
                 if (own_key == byte_key) return @bitCast(Node, self);
@@ -1070,14 +1069,14 @@ fn BranchNode(comptime bucket_count: u8) type {
     };
 }
 
-fn WrapInfixNode(branch_depth: u8, key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Node {
+fn WrapInfixNode(start_depth: u8, key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Node {
     const child_range = child.range();
 
-    if(branch_depth <= child_range) {
+    if(child_range <= start_depth) {
         return child;
     }
 
-    const infix_length = child_range - branch_depth;
+    const infix_length = child_range - start_depth;
     
     if (infix_length <= 8) {
         return @bitCast(Node, try InfixNode(8).init(key, child, allocator));
@@ -1220,13 +1219,21 @@ fn InfixNode(comptime infix_len: u8) type {
         pub fn peek(self: Head, at_depth: u8) ?u8 {
             if (self.child_depth <= at_depth) return null;
             const infix_index = depth_to_infix(infix_len, self.child_depth, at_depth);
-            if(infix_index <= head_infix_len) {
+            if(infix_index < head_infix_len) {
                 return self.infix[infix_index];
             }
             return self.body.infix[infix_index - head_infix_len];
         }
 
         pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+            if (at_depth == self.child_depth) {
+                // We know that the child has its range maxed out otherwise
+                // there wouldn't be a infix node, so this access is easy and
+                // also cheap.
+                result_set.singleIntersect(self.body.child.peek(at_depth).?);
+                return;
+            }
+            
             if (self.peek(at_depth)) |byte_key| {
                 result_set.singleIntersect(byte_key);
                 return;
@@ -1236,13 +1243,16 @@ fn InfixNode(comptime infix_len: u8) type {
         }
 
         pub fn get(self: Head, at_depth: u8, key: u8) Node {
+            if (at_depth == self.child_depth) {
+                if (self.body.child.peek(at_depth).? == key) {
+                    return self.body.child;
+                } else {
+                    return Node.none;
+                }
+            }
             if (self.peek(at_depth)) |own_key| {
                 if (own_key == key) {
-                    if (at_depth + 1 == self.child_depth) {
-                        return self.body.child;
-                    } else {
-                        return @bitCast(Node, self);
-                    }
+                    return @bitCast(Node, self);
                 } 
             }
             
@@ -1254,7 +1264,7 @@ fn InfixNode(comptime infix_len: u8) type {
 
             var branch_depth = start_depth;
             while (branch_depth < self.child_depth) : (branch_depth += 1) {
-                if (key[branch_depth] != self.peek(branch_depth).?) break;
+                if (key[branch_depth] != (self.peek(branch_depth).?)) break;
             } else {
                 // The entire compressed infix above this node matched with the key.
                 const old_child = self.body.child;
@@ -1382,20 +1392,14 @@ const LeafNode = extern struct {
 
         var branch_depth = start_depth;
         while (branch_depth < key_length) : (branch_depth += 1) {
-            if (key[branch_depth] != self.peek(branch_depth).?) break;
+            if (key[branch_depth] != (self.peek(branch_depth).?)) break;
         } else {
             return @bitCast(Node, self);
         }
 
-        var recycled_self = self;
-
-        for (recycled_self.suffix) |*byte, i| {
-            byte.* = self.peek(branch_depth + @intCast(u8, i)) orelse break;
-        }
-
         const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
+        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
     }
 };
 
@@ -1484,20 +1488,14 @@ const TwigNode = extern struct {
 
         var branch_depth = start_depth;
         while (branch_depth < key_length) : (branch_depth += 1) {
-            if (key[branch_depth] != self.peek(branch_depth).?) break;
+            if (key[branch_depth] != (self.peek(branch_depth).?)) break;
         } else {
             return @bitCast(Node, self);
         }
 
-        var recycled_self = self;
-
-        for (recycled_self.suffix) |*byte, i| {
-            byte.* = self.peek(branch_depth + @intCast(u8, i)) orelse break;
-        }
-
         const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, recycled_self), allocator);
+        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
     }
 };
 
@@ -1523,7 +1521,7 @@ pub const Tree = struct {
 
             var branch_depth = start_depth;
             infix: while (branch_depth < key_length) : (branch_depth += 1) {
-                self.key[branch_depth] = node.peek(start_depth, branch_depth) orelse break :infix;
+                self.key[branch_depth] = node.peek(branch_depth) orelse break :infix;
             } else {
                 var exhausted_depth = self.start_points.drainNext(false).?;
                 while (self.start_points.findLastSet()) |parent_depth| {
@@ -1585,38 +1583,38 @@ pub const Tree = struct {
         _ = self;
 
         var card = Card.from(
-            \\┌────────────────────────────────────────────────────────────────────────────────┐
-            \\│ Tree                                                                           │
-            \\│━━━━━━                                                                          │
-            \\│                                                                                │
-            \\│        Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀      Memory (keys): 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂            │
-            \\│                                                                                │
-            \\│   Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Memory (actual): 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄            │
-            \\│                                                                                │
-            \\│  Alloc Count: 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃        Compression: 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅            │
-            \\│                                                                                │
-            \\│  Node Distribution                                   infix8 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐   │
-            \\│ ═══════════════════       branch1 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  infix16 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑   │
-            \\│                           branch2 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  infix24 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒   │
-            \\│                           branch4 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  infix32 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓   │
-            \\│                           branch8 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  infix40 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔   │
-            \\│   leaf 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆  branch16 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  infix48 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕   │
-            \\│   twig 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  branch32 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  infix56 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖   │
-            \\│   none 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  branch64 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  infix64 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗   │
-            \\│                                                                                │
-            \\│  Density                                                                       │
-            \\│ ═════════                                                                      │
-            \\│                                                                                │
-            \\│       ┐󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       ┘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-            \\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
-            \\└────────────────────────────────────────────────────────────────────────────────┘
+\\┌────────────────────────────────────────────────────────────────────────────────┐
+\\│ Tree                                                                           │
+\\│━━━━━━                                                                          │
+\\│        Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀      Memory (keys): 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃            │
+\\│   Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Memory (actual): 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄            │
+\\│  Alloc Count: 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂   Overhead (ratio): 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅            │
+\\│                                                                                │
+\\│  Node Distribution                                                             │
+\\│ ═══════════════════                                                            │
+\\│                                                                                │
+\\│                                                      infix8 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐   │
+\\│                           branch1 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  infix16 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑   │
+\\│                           branch2 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  infix24 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒   │
+\\│                           branch4 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  infix32 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓   │
+\\│                           branch8 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  infix40 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔   │
+\\│   none 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆  branch16 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  infix48 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕   │
+\\│   leaf 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  branch32 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  infix56 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖   │
+\\│   twig 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  branch64 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  infix64 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗   │
+\\│                                                                                │
+\\│  Density                                                                       │
+\\│ ═════════                                                                      │
+\\│                                                                                │
+\\│       ┐󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       ┘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
+\\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
+\\└────────────────────────────────────────────────────────────────────────────────┘
         ) catch unreachable;
 
         const item_count = self.count();
@@ -1654,7 +1652,7 @@ pub const Tree = struct {
         while (node_iter.next()) |res| {
             node_count += 1;
             density_at_depth[res.start_depth] += 1;
-            switch (res.node.tag) {
+            switch (res.node.unknown.tag) {
                 .none => none_count += 1,
                 .leaf => leaf_count += 1,
                 .twig => twig_count += 1,
@@ -1711,7 +1709,23 @@ pub const Tree = struct {
             max_density = std.math.max(max_density, density);
         }
 
-        const mem_ratio: f64 = 0;//@intToFloat(f64, mem_keys) / @intToFloat(f64, mem_actual)
+        mem_actual =   branch_1_count * @sizeOf(BranchNode(1).Body)         //
+                     + branch_2_count * @sizeOf(BranchNode(2).Body)         //
+                     + branch_4_count * @sizeOf(BranchNode(4).Body)         //
+                     + branch_8_count * @sizeOf(BranchNode(8).Body)         //
+                     + branch_16_count * @sizeOf(BranchNode(16).Body)       //
+                     + branch_32_count * @sizeOf(BranchNode(32).Body)       //
+                     + branch_64_count * @sizeOf(BranchNode(64).Body)       //
+                     + infix_8_count * @sizeOf(InfixNode(8).Body)   //
+                     + infix_16_count * @sizeOf(InfixNode(16).Body) //
+                     + infix_24_count * @sizeOf(InfixNode(24).Body) //
+                     + infix_32_count * @sizeOf(InfixNode(32).Body) //
+                     + infix_40_count * @sizeOf(InfixNode(40).Body) //
+                     + infix_48_count * @sizeOf(InfixNode(48).Body) //
+                     + infix_56_count * @sizeOf(InfixNode(56).Body) //
+                     + infix_64_count * @sizeOf(InfixNode(64).Body);
+
+        const mem_overhead: f64 = @intToFloat(f64, mem_actual) / @intToFloat(f64, mem_keys);
 
         var count_data: [16:0]u8 = undefined;
         _ = std.fmt.bufPrint(&count_data, "{d:_>16}", .{ item_count }) catch unreachable;
@@ -1733,9 +1747,9 @@ pub const Tree = struct {
         _ = std.fmt.bufPrint(&mem_actual_data, "{d:_>16}", .{mem_actual}) catch unreachable;
         var mem_actual_iter = (std.unicode.Utf8View.init(&mem_actual_data) catch unreachable).iterator();
 
-        var mem_ratio_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&mem_ratio_data, "{d:_>16}", .{mem_ratio}) catch unreachable;
-        var mem_ratio_iter = (std.unicode.Utf8View.init(&mem_ratio_data) catch unreachable).iterator();
+        var mem_overhead_data: [16:0]u8 = undefined;
+        _ = std.fmt.bufPrint(&mem_overhead_data, "{d:_>16}", .{mem_overhead}) catch unreachable;
+        var mem_overhead_iter = (std.unicode.Utf8View.init(&mem_overhead_data) catch unreachable).iterator();
 
         var none_count_data: [16:0]u8 = undefined;
         _ = std.fmt.bufPrint(&none_count_data, "{d:_>16}", .{none_count}) catch unreachable;
@@ -1809,7 +1823,7 @@ pub const Tree = struct {
         _ = std.fmt.bufPrint(&infix_64_count_data, "{d:_>16}", .{infix_64_count}) catch unreachable;
         var infix_64_count_iter = (std.unicode.Utf8View.init(&infix_64_count_data) catch unreachable).iterator();
 
-        const density_pos = card.findTopLeft('\u{F0019}').?;
+        const density_pos = card.findTopLeft('\u{F0018}').?;
 
         for (card.grid) |*row, global_y| {
             for (row.*) |*cell, global_x| {
@@ -1819,7 +1833,7 @@ pub const Tree = struct {
                     '\u{F0002}' => alloc_count_iter.nextCodepoint().?,
                     '\u{F0003}' => mem_keys_iter.nextCodepoint().?,
                     '\u{F0004}' => mem_actual_iter.nextCodepoint().?,
-                    '\u{F0005}' => mem_ratio_iter.nextCodepoint().?,
+                    '\u{F0005}' => mem_overhead_iter.nextCodepoint().?,
                     '\u{F0006}' => none_count_iter.nextCodepoint().?,
                     '\u{F0007}' => leaf_count_iter.nextCodepoint().?,
                     '\u{F0008}' => twig_count_iter.nextCodepoint().?,
