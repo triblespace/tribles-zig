@@ -403,7 +403,7 @@ const Node = extern union {
 
     pub fn hash(self: Node, start_depth: u8, prefix: [key_length]u8) Hash {
         return switch (self.unknown.tag) {
-            .none => Hash{.data: [_]u8{0} ** key_length},
+            .none => Hash{.data = [_]u8{0} ** 16},
             .inner1 => self.inner1.hash(start_depth, prefix),
             .inner2 => self.inner2.hash(start_depth, prefix),
             .inner4 => self.inner4.hash(start_depth, prefix),
@@ -1690,7 +1690,7 @@ pub const Tree = struct {
 
         const mem_actual: u64 = inner_1_count * @sizeOf(InnerNode(1).Body) + inner_2_count * @sizeOf(InnerNode(2).Body) + inner_4_count * @sizeOf(InnerNode(4).Body) + inner_8_count * @sizeOf(InnerNode(8).Body) + inner_16_count * @sizeOf(InnerNode(16).Body) + inner_32_count * @sizeOf(InnerNode(32).Body) + inner_64_count * @sizeOf(InnerNode(64).Body) + leaf_8_count * @sizeOf(LeafNode(false, 8).Body) + leaf_16_count * @sizeOf(LeafNode(false, 16).Body) + leaf_24_count * @sizeOf(LeafNode(false, 24).Body) + leaf_32_count * @sizeOf(LeafNode(false, 32).Body) + leaf_40_count * @sizeOf(LeafNode(false, 40).Body) + leaf_48_count * @sizeOf(LeafNode(false, 48).Body) + leaf_56_count * @sizeOf(LeafNode(false, 56).Body) + leaf_64_count * @sizeOf(LeafNode(false, 64).Body) + twig_16_count * @sizeOf(LeafNode(true, 16).Body) + twig_24_count * @sizeOf(LeafNode(true, 24).Body) + twig_32_count * @sizeOf(LeafNode(true, 32).Body) + twig_40_count * @sizeOf(LeafNode(true, 40).Body) + twig_48_count * @sizeOf(LeafNode(true, 48).Body) + twig_56_count * @sizeOf(LeafNode(true, 56).Body) + twig_64_count * @sizeOf(LeafNode(true, 64).Body);
 
-        const mem_overhead: f64 = @intToFloat(f64, mem_actual) - @intToFloat(f64, mem_keys);
+        const mem_overhead: f64 = @intToFloat(f64, mem_actual) / @intToFloat(f64, mem_keys);
 
         var max_density: u64 = 0;
         for (density_at_depth) |density| {
@@ -1898,11 +1898,11 @@ pub const Tree = struct {
     // }
 
     pub fn isEmpty(self: *Tree) bool {
-       return this.child.isNone();
+       return self.child.isNone();
     }
 
     pub fn isEqual(self: *Tree, other: *Tree) bool {
-      return this.child.hash(0, undefined).equal(other.child.hash(0, undefined));
+      return self.child.hash(0, undefined).equal(other.child.hash(0, undefined));
     }
 
     // isSubsetOf(other) {
