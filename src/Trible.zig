@@ -27,16 +27,19 @@ pub const Trible = extern struct {
 
     pub fn initAribitraryLike(rnd: std.rand.Random, change_prob: f32, other: Trible) Trible {
         var t = other;
-        if (rnd.floatNorm(f32) < change_prob) {
-            const e_value = UFOID.initNow(rnd);
-            std.mem.copy(u8, t.data[0..16], e_value.encode()[16..32]);
-        }
+
+        const v_value = UFOID.initNow(rnd);
+        std.mem.copy(u8, t.data[32..64], v_value.encode()[0..32]);
+
         if (rnd.floatNorm(f32) < change_prob) {
             const a_value = UFOID.initNow(rnd);
             std.mem.copy(u8, t.data[16..32], a_value.encode()[16..32]);
+            
+            if (rnd.floatNorm(f32) < change_prob) {
+                const e_value = UFOID.initNow(rnd);
+                std.mem.copy(u8, t.data[0..16], e_value.encode()[16..32]);
+            }
         }
-        const v_value = UFOID.initNow(rnd);
-        std.mem.copy(u8, t.data[32..64], v_value.encode()[0..32]);
 
         return t;
     }
