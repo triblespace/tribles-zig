@@ -99,10 +99,10 @@ pub fn benchmark_pact_write() !void {
 
     std.debug.print("{s}\n", .{tree});
 
-    //var node_iter = tree.nodes();
-    //while(node_iter.next()) |res| {
-    //    std.debug.print("Depth: {d}..{d}\n{s}\n", .{res.start_depth, res.node.depth(), res.node});
-    //}
+    // var node_iter = tree.nodes();
+    // while(node_iter.next()) |res| {
+    //     std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
+    // }
 
 }
 
