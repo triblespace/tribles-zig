@@ -208,7 +208,7 @@ const Node = extern union {
         tag: NodeTag = .none,
         padding: [15]u8 = undefined,
     },
-    branch1: BranchNode(1),
+    branch1: BranchNodeBase,
     branch2: BranchNode(2),
     branch4: BranchNode(4),
     branch8: BranchNode(8),
@@ -566,6 +566,370 @@ const HLL = extern struct {
     }
 };
 
+const Bucket = extern struct {
+    const SLOT_COUNT = 4;
+
+    slots: [SLOT_COUNT]Node = [_]Node{Node{ .none = .{} }} ** SLOT_COUNT,
+
+    pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
+        for (self.slots) |slot| {
+            if (slot.unknown.tag != .none and ((slot.peek(depth).?) == byte_key)) {
+                return slot;
+            }
+        }
+        return Node.none;
+    }
+
+    /// Attempt to store a new node in this bucket,
+    /// the key must not exist in this bucket beforehand.
+    /// If there is no free slot the attempt will fail.
+    /// Returns true iff it succeeds.
+    pub fn put(
+        self: *Bucket,
+        depth: u8,
+        // / Determines the hash function used for each key and is used to detect outdated (free) slots.
+        rand_hash_used: *ByteBitset,
+        // / The current bucket count. Is used to detect outdated (free) slots.
+        current_count: u8,
+        // / The current index the bucket has. Is used to detect outdated (free) slots.
+        bucket_index: u8,
+        // / The entry to be stored in the bucket.
+        entry: Node,
+    ) bool {
+        for (self.slots) |*slot| {
+            if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
+                slot.* = entry;
+                return true;
+            }
+        }
+        for (self.slots) |*slot| {
+            if (slot.isNone()) {
+                slot.* = entry;
+                return true;
+            }
+            const slot_key = slot.peek(depth).?;
+            if (bucket_index != hashByteKey(rand_hash_used.isSet(slot_key), current_count, slot_key)) {
+                slot.* = entry;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Updates the pointer for the key stored in this bucket.
+    pub fn putBase(
+        self: *Bucket,
+        // / The new entry value.
+        entry: Node,
+    ) bool {
+        for (self.slots) |*slot| {
+            if (slot.isNone()) {
+                slot.* = entry;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// Updates the pointer for the key stored in this bucket.
+    pub fn update( // TODO can we fold update into put for a simpler API?
+        self: *Bucket,
+        depth: u8,
+        // / The new entry value.
+        entry: Node,
+    ) void {
+        for (self.slots) |*slot| {
+            if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
+                slot.* = entry;
+                return;
+            }
+        }
+    }
+
+    /// Displaces a random existing slot.
+    pub fn displaceRandomly(
+        self: *Bucket,
+        // / A random value to determine the slot to displace.
+        random_value: u8,
+        // / The entry that displaces an existing entry.
+        entry: Node,
+    ) Node {
+        const index = random_value & (SLOT_COUNT - 1);
+        const prev = self.slots[index];
+        self.slots[index] = entry;
+        return prev;
+    }
+
+    /// Displaces the first slot that is using the alternate hash function.
+    pub fn displaceRandHashOnly(
+        self: *Bucket,
+        depth: u8,
+        // / Determines the hash function used for each key and is used to detect outdated (free) slots.
+        rand_hash_used: *ByteBitset,
+        // / The entry to be stored in the bucket.
+        entry: Node,
+    ) Node {
+        for (self.slots) |*slot| {
+            if (rand_hash_used.isSet(slot.peek(depth).?)) {
+                const prev = slot.*;
+                slot.* = entry;
+                return prev;
+            }
+        }
+        unreachable;
+    }
+};
+
+const BranchNodeBase = extern struct {
+    const infix_len = 6;
+
+    tag: NodeTag = .branch1,
+    /// The infix stored in this head.
+    infix: [infix_len]u8 = [_]u8{0} ** infix_len,
+    /// The branch depth of the body.
+    branch_depth: u8,
+    /// The address of the pointer associated with the key.
+    body: *Body,
+
+    const Head = @This();
+
+    const GrownHead = BranchNode(2);
+
+    const BODY_ALIGNMENT = 64;
+
+    const Body = extern struct {
+        leaf_count: u64,
+        ref_count: u32 = 1,
+        buffer_count: u32 = 0,
+        child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
+        segment_hll: HLL = HLL.init(),
+        bucket: Bucket = Bucket{},
+    };
+
+    pub fn format(
+        self: Head,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        _ = self;
+
+        try writer.writeAll("Branch One");
+    }
+
+    pub fn init(branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
+        const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+        const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
+        new_body.* = Body{ .ref_count = 1, .leaf_count = 1 };
+
+        var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
+
+        const used_infix_len = @minimum(branch_depth, infix_len);
+        mem.copy(u8, new_head.infix[infix_len-used_infix_len..], key[branch_depth-used_infix_len..branch_depth]);
+
+        return new_head;
+    }
+
+    pub fn initBranch(branch_depth: u8, key: [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
+        const branch_node = try BranchNodeBase.init(branch_depth, key, allocator);
+
+        _ = branch_node.cuckooPut(left); // We know that these can't fail.
+        _ = branch_node.cuckooPut(right);
+
+        branch_node.body.child_sum_hash = Hash.xor(left.hash(key), right.hash(key));
+        branch_node.body.leaf_count = left.count() + right.count();
+
+        return @bitCast(Node, branch_node);
+    }
+
+    pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
+        if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
+            // Reference counter exhausted, we need to make a copy of this node.
+            return @bitCast(Node, try self.copy(allocator));
+        } else {
+            self.body.ref_count += 1;
+            return null;
+        }
+    }
+
+    pub fn rel(self: Head, allocator: std.mem.Allocator) void {
+        self.body.ref_count -= 1;
+        if (self.body.ref_count == 0) {
+            defer allocator.free(std.mem.asBytes(self.body));
+            for (self.body.bucket.slots) |slot| {
+                if(slot.unknown.tag != .none) {
+                    slot.rel(allocator);
+                }
+            }
+        }
+    }
+
+    pub fn count(self: Head) u64 {
+        return self.body.leaf_count;
+    }
+
+    pub fn hash(self: Head, prefix: [key_length]u8) Hash {
+        _ = prefix;
+        return self.body.child_sum_hash;
+    }
+
+    pub fn range(self: Head) u8 {
+        return self.branch_depth - @minimum(self.branch_depth, infix_len);
+    }
+
+    pub fn peek(self: Head, at_depth: u8) ?u8 {
+        if (self.branch_depth <= at_depth) return null;
+        return self.infix[(at_depth + infix_len) - self.branch_depth];
+    }
+
+    pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+        if (at_depth == self.branch_depth) {
+            var child_set = ByteBitset.initEmpty();
+            for (self.body.bucket.slots) |slot| {
+                if(!slot.isNone()) {
+                    child_set.set(slot.peek(at_depth).?);
+                }
+            }
+            result_set.setIntersect(result_set, &child_set);
+            return;
+        }
+
+        if (self.peek(at_depth)) |byte_key| {
+            result_set.singleIntersect(byte_key);
+            return;
+        }
+
+        result_set.unsetAll();
+    }
+
+    pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+        const single_owner = parent_single_owner and self.body.ref_count == 1;
+
+        var branch_depth = start_depth;
+        while (branch_depth < self.branch_depth) : (branch_depth += 1) {
+            if (key[branch_depth] != self.peek(branch_depth).?) break;
+        } else {
+            // The entire compressed infix above this node matched with the key.
+            const byte_key = key[branch_depth];
+            
+            const old_child = self.body.bucket.get(self.branch_depth, byte_key);
+            if (old_child.unknown.tag != .none) {
+                // The node already has a child branch with the same byte byte_key as the one in the key.
+                const old_child_hash = old_child.hash(key);
+                const old_child_count = old_child.count();
+                const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
+                const new_child_hash = new_child.hash(key);
+                if (Hash.equal(old_child_hash, new_child_hash)) {
+                    std.debug.print("Key already in tree. Hash is equal.\n{s}\n{s}\n", .{ std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data) });
+                    return @bitCast(Node, self);
+                }
+                const new_hash = Hash.xor(Hash.xor(self.body.child_sum_hash, old_child_hash), new_child_hash);
+                const new_count = self.body.leaf_count - old_child_count + new_child.count();
+
+                var self_or_copy = self;
+                if (!single_owner) {
+                    self_or_copy = try self.copy(allocator);
+                    old_child.rel(allocator);
+                }
+                self_or_copy.body.child_sum_hash = new_hash;
+                self_or_copy.body.leaf_count = new_count;
+                self_or_copy.body.bucket.update(self.branch_depth, new_child);
+                return @bitCast(Node, self_or_copy);
+            } else {
+                const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
+                const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(key));
+                const new_count = self.body.leaf_count + 1;
+
+                var self_or_copy = if (single_owner) self else try self.copy(allocator);
+
+                self_or_copy.body.child_sum_hash = new_hash;
+                self_or_copy.body.leaf_count = new_count;
+
+                var displaced = self_or_copy.cuckooPut(new_child_node);
+                if(displaced) |_| {
+                    //var buff = self_or_copy.body.buffer;
+
+                    var grown = @bitCast(Node, self_or_copy);
+                    while(displaced) |entry| {
+                        grown = try grown.grow(allocator);
+                        displaced = grown.cuckooPut(entry);
+                    }
+                    //_ = buff;
+                    return grown;
+                }
+
+                return @bitCast(Node, self_or_copy);
+            }
+        }
+
+        const sibling_leaf_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
+
+        return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+    }
+
+    pub fn get(self: Head, at_depth: u8, byte_key: u8) Node {
+        if (at_depth == self.branch_depth) {
+            return self.body.bucket.get(self.branch_depth, byte_key);
+        }
+        if (self.peek(at_depth)) |own_key| {
+            if (own_key == byte_key) return @bitCast(Node, self);
+        }
+        return Node.none;
+    }
+
+    fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
+        const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+        const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
+
+        new_body.* = self.body.*;
+        new_body.ref_count = 1;
+
+        var new_head = self;
+        new_head.body = self.body;
+
+        for (new_head.body.bucket.slots) |*child| {
+            if(!child.isNone()) {
+                const potential_child_copy = try child.ref(allocator);
+                if (potential_child_copy) |new_child| {
+                    child.* = new_child;
+                }
+            }
+        }
+
+        return new_head;
+    }
+
+    fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
+        const bucket = self.body.bucket;
+
+        //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
+        const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
+        const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
+        //std.debug.print("Growed:{*}\n", .{new_body});
+        new_body.buckets[0] = bucket;
+        new_body.buckets[1] = bucket;
+        
+        new_body.child_set.unsetAll();
+        new_body.rand_hash_used.unsetAll();
+
+        for (bucket.slots) |child| {
+            new_body.child_set.set(child.peek(self.branch_depth).?);
+        }
+        
+        return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body });
+    }
+
+    fn cuckooPut(self: Head, node: Node) ?Node {
+        if (self.body.bucket.putBase(node)) {
+            return null;  //TODO use none.
+        }
+        return node;
+    }
+};
+
 fn BranchNode(comptime bucket_count: u8) type {
     const infix_len = 6;
 
@@ -595,105 +959,6 @@ fn BranchNode(comptime bucket_count: u8) type {
             buckets: Buckets = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
 
             const Buckets = [bucket_count]Bucket;
-
-            const Bucket = extern struct {
-                const SLOT_COUNT = 4;
-
-                slots: [SLOT_COUNT]Node = [_]Node{Node{ .none = .{} }} ** SLOT_COUNT,
-
-                pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
-                    for (self.slots) |slot| {
-                        if (slot.unknown.tag != .none and ((slot.peek(depth).?) == byte_key)) {
-                            return slot;
-                        }
-                    }
-                    return Node.none;
-                }
-
-                /// Attempt to store a new node in this bucket,
-                /// the key must not exist in this bucket beforehand.
-                /// If there is no free slot the attempt will fail.
-                /// Returns true iff it succeeds.
-                pub fn put(
-                    self: *Bucket,
-                    depth: u8,
-                    // / Determines the hash function used for each key and is used to detect outdated (free) slots.
-                    rand_hash_used: *ByteBitset,
-                    // / The current bucket count. Is used to detect outdated (free) slots.
-                    current_count: u8,
-                    // / The current index the bucket has. Is used to detect outdated (free) slots.
-                    bucket_index: u8,
-                    // / The entry to be stored in the bucket.
-                    entry: Node,
-                ) bool {
-                    for (self.slots) |*slot| {
-                        if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
-                            slot.* = entry;
-                            return true;
-                        }
-                    }
-                    for (self.slots) |*slot| {
-                        if (slot.isNone()) {
-                            slot.* = entry;
-                            return true;
-                        }
-                        const slot_key = slot.peek(depth).?;
-                        if (bucket_index != hashByteKey(rand_hash_used.isSet(slot_key), current_count, slot_key)) {
-                            slot.* = entry;
-                            return true;
-                        }
-                    }
-                    return false;
-                }
-
-                /// Updates the pointer for the key stored in this bucket.
-                pub fn update(
-                    self: *Bucket,
-                    depth: u8,
-                    // / The new entry value.
-                    entry: Node,
-                ) void {
-                    for (self.slots) |*slot| {
-                        if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
-                            slot.* = entry;
-                            return;
-                        }
-                    }
-                }
-
-                /// Displaces a random existing slot.
-                pub fn displaceRandomly(
-                    self: *Bucket,
-                    // / A random value to determine the slot to displace.
-                    random_value: u8,
-                    // / The entry that displaces an existing entry.
-                    entry: Node,
-                ) Node {
-                    const index = random_value & (SLOT_COUNT - 1);
-                    const prev = self.slots[index];
-                    self.slots[index] = entry;
-                    return prev;
-                }
-
-                /// Displaces the first slot that is using the alternate hash function.
-                pub fn displaceRandHashOnly(
-                    self: *Bucket,
-                    depth: u8,
-                    // / Determines the hash function used for each key and is used to detect outdated (free) slots.
-                    rand_hash_used: *ByteBitset,
-                    // / The entry to be stored in the bucket.
-                    entry: Node,
-                ) Node {
-                    for (self.slots) |*slot| {
-                        if (rand_hash_used.isSet(slot.peek(depth).?)) {
-                            const prev = slot.*;
-                            slot.* = entry;
-                            return prev;
-                        }
-                    }
-                    unreachable;
-                }
-            };
         };
 
         pub fn format(
@@ -796,7 +1061,7 @@ fn BranchNode(comptime bucket_count: u8) type {
                             const rand_hash_used = self.body.rand_hash_used.isSet(byte_key);
 
                             const bucket_index = hashByteKey(rand_hash_used, bucket_count, byte_key);
-                            if (self.body.buckets[bucket_index].get(self.branch_depth, byte_key).unknown.tag != .none) {
+                            if (!self.body.buckets[bucket_index].get(self.branch_depth, byte_key).isNone()) {
                                 s = if (rand_hash_used) '◆' else '●';
                             } else {
                                 s = if (rand_hash_used) '◇' else '○';
@@ -960,7 +1225,7 @@ fn BranchNode(comptime bucket_count: u8) type {
 
             const sibling_leaf_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
 
-            return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+            return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
         }
 
         pub fn get(self: Head, at_depth: u8, byte_key: u8) Node {
@@ -1302,7 +1567,7 @@ fn InfixNode(comptime infix_len: u8) type {
             mem.copy(u8, old_key[key_start_body..self.child_depth], self.body.infix[infix_start_body..]);
 
             const child_node = try WrapInfixNode(branch_depth, old_key, self.body.child, allocator);
-            const branch_node_above = try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, child_node, allocator);
+            const branch_node_above = try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, child_node, allocator);
 
             return try WrapInfixNode(start_depth, key, branch_node_above, allocator);
         }
@@ -1410,7 +1675,7 @@ const LeafNode = extern struct {
 
         const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+        return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
     }
 };
 
@@ -1506,7 +1771,7 @@ const TwigNode = extern struct {
 
         const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-        return try BranchNode(1).initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+        return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
     }
 };
 
@@ -1720,7 +1985,7 @@ pub const Tree = struct {
             max_density = std.math.max(max_density, density);
         }
 
-        mem_actual =   branch_1_count * @sizeOf(BranchNode(1).Body)         //
+        mem_actual =   branch_1_count * @sizeOf(BranchNodeBase.Body)         //
                      + branch_2_count * @sizeOf(BranchNode(2).Body)         //
                      + branch_4_count * @sizeOf(BranchNode(4).Body)         //
                      + branch_8_count * @sizeOf(BranchNode(8).Body)         //
@@ -1994,14 +2259,14 @@ pub const Tree = struct {
 
 test "Alignment & Size" {
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ Node, @sizeOf(Node), @alignOf(Node) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(1).Head, @sizeOf(BranchNode(1).Head), @alignOf(BranchNode(1).Head) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNodeBase.Head, @sizeOf(BranchNodeBase.Head), @alignOf(BranchNodeBase.Head) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(2).Head, @sizeOf(BranchNode(2).Head), @alignOf(BranchNode(2).Head) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(4).Head, @sizeOf(BranchNode(4).Head), @alignOf(BranchNode(4).Head) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(8).Head, @sizeOf(BranchNode(8).Head), @alignOf(BranchNode(8).Head) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(16).Head, @sizeOf(BranchNode(16).Head), @alignOf(BranchNode(16).Head) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(32).Head, @sizeOf(BranchNode(32).Head), @alignOf(BranchNode(32).Head) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(64).Head, @sizeOf(BranchNode(64).Head), @alignOf(BranchNode(64).Head) });
-    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(1).Body, @sizeOf(BranchNode(1).Body), @alignOf(BranchNode(1).Body) });
+    std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNodeBase.Body, @sizeOf(BranchNodeBase.Body), @alignOf(BranchNodeBase.Body) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(2).Body, @sizeOf(BranchNode(2).Body), @alignOf(BranchNode(2).Body) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(4).Body, @sizeOf(BranchNode(4).Body), @alignOf(BranchNode(4).Body) });
     std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(8).Body, @sizeOf(BranchNode(8).Body), @alignOf(BranchNode(8).Body) });
