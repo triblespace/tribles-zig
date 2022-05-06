@@ -10,7 +10,7 @@ const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
 
 const sample_size: usize = 1;
-const data_size: usize = 1000000;
+const data_size: usize = 100000000;
 const change_prob = 0.1;
 
 pub fn main() !void {

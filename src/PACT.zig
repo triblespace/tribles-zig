@@ -596,28 +596,13 @@ const Bucket = extern struct {
         // / The entry to be stored in the bucket.
         entry: Node,
     ) bool {
-        for (self.slots) |*slot| {
-            if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
-                slot.* = entry;
-                return true;
-            }
-        }
-        for (self.slots) |*slot| {
-            if (slot.isNone()) {
-                slot.* = entry;
-                return true;
-            }
-            const slot_key = slot.peek(depth).?;
-            if (bucket_index != hashByteKey(rand_hash_used.isSet(slot_key), current_count, slot_key)) {
-                slot.* = entry;
-                return true;
-            }
-        }
-        return false;
+        return self.putIntoExisting(depth, entry)
+            or self.putIntoEmpty(entry)
+            or self.putIntoOutdated(depth, rand_hash_used, current_count, bucket_index, entry);
     }
 
     /// Updates the pointer for the key stored in this bucket.
-    pub fn putBase(
+    pub fn putIntoEmpty(
         self: *Bucket,
         // / The new entry value.
         entry: Node,
@@ -632,18 +617,41 @@ const Bucket = extern struct {
     }
 
     /// Updates the pointer for the key stored in this bucket.
-    pub fn update( // TODO can we fold update into put for a simpler API?
+    pub fn putIntoExisting(
         self: *Bucket,
         depth: u8,
         // / The new entry value.
         entry: Node,
-    ) void {
+    ) bool {
         for (self.slots) |*slot| {
             if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
                 slot.* = entry;
-                return;
+                return true;
             }
         }
+        return false;
+    }
+
+    pub fn putIntoOutdated(
+        self: *Bucket,
+        depth: u8,
+        // / Determines the hash function used for each key and is used to detect outdated (free) slots.
+        rand_hash_used: *ByteBitset,
+        // / The current bucket count. Is used to detect outdated (free) slots.
+        current_count: u8,
+        // / The current index the bucket has. Is used to detect outdated (free) slots.
+        bucket_index: u8,
+        // / The entry to be stored in the bucket.
+        entry: Node,
+    ) bool {
+        for (self.slots) |*slot| {
+            const slot_key = slot.peek(depth).?;
+            if (bucket_index != hashByteKey(rand_hash_used.isSet(slot_key), current_count, slot_key)) {
+                slot.* = entry;
+                return true;
+            }
+        }
+        return false;
     }
 
     /// Displaces a random existing slot.
@@ -836,7 +844,7 @@ const BranchNodeBase = extern struct {
                 }
                 self_or_copy.body.child_sum_hash = new_hash;
                 self_or_copy.body.leaf_count = new_count;
-                self_or_copy.body.bucket.update(self.branch_depth, new_child);
+                _ = self_or_copy.body.bucket.putIntoExisting(self.branch_depth, new_child);
                 return @bitCast(Node, self_or_copy);
             } else {
                 const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
@@ -923,7 +931,7 @@ const BranchNodeBase = extern struct {
     }
 
     fn cuckooPut(self: Head, node: Node) ?Node {
-        if (self.body.bucket.putBase(node)) {
+        if (self.body.bucket.putIntoEmpty(node)) {
             return null;  //TODO use none.
         }
         return node;
@@ -1329,7 +1337,7 @@ fn BranchNode(comptime bucket_count: u8) type {
         fn cuckooUpdate(self: Head, node: Node) void {
             const byte_key = node.peek(self.branch_depth).?;
             const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-            self.body.buckets[bucket_index].update(self.branch_depth, node);
+            _ = self.body.buckets[bucket_index].putIntoExisting(self.branch_depth, node);
         }
     };
 }
