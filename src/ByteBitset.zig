@@ -17,6 +17,13 @@ pub const ByteBitset = extern struct {
         return self.bits[0] == 0 and self.bits[1] == 0 and self.bits[2] == 0 and self.bits[3] == 0;
     }
 
+    pub fn count(self: *const ByteBitset) u8 {
+        return @popCount(u64, self.bits[0])
+             + @popCount(u64, self.bits[1])
+             + @popCount(u64, self.bits[2])
+             + @popCount(u64, self.bits[3]);
+    }
+
     pub fn set(self: *ByteBitset, index: u8) void {
         self.bits[index >> 6] |= @as(u64, 1) << @truncate(u6, index);
     }

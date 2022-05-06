@@ -93,4 +93,20 @@ pub const TribleSet = struct {
           try self.aIsV.put(trible.ordered(.aev), null);
         }
     }
+
+    pub fn mem_info(self: *TribleSet) PACT.MemInfo {
+        var total = PACT.MemInfo{};
+
+        total = total.combine(self.eav.mem_info());
+        total = total.combine(self.eva.mem_info());
+        total = total.combine(self.aev.mem_info());
+        total = total.combine(self.ave.mem_info());
+        total = total.combine(self.vea.mem_info());
+        total = total.combine(self.vae.mem_info());
+        total = total.combine(self.eIsA.mem_info());
+        total = total.combine(self.eIsV.mem_info());
+        total = total.combine(self.aIsV.mem_info());
+
+        return total;
+    }
 };

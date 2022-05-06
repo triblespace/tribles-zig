@@ -10,14 +10,14 @@ const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
 
 const sample_size: usize = 1;
-const data_size: usize = 100000000;
+const data_size: usize = 1000000;
 const change_prob = 0.1;
 
 pub fn main() !void {
     PACT.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_pact_write();
+        try benchmark_tribleset_write();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -58,7 +58,7 @@ pub fn benchmark_tribleset_write() !void {
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
 
-    //std.debug.print("{s}\n", .{set});
+    std.debug.print("{s}\n", .{set.mem_info()});
 }
 
 pub fn benchmark_pact_write() !void {

@@ -3,6 +3,8 @@ const assert = std.debug.assert;
 const expectEqual = std.testing.expectEqual;
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 const Card = @import("Card.zig").Card;
+const cards = @import("./PACT/cards.zig");
+
 
 const mem = std.mem;
 
@@ -199,7 +201,23 @@ const NodeTag = enum(u8) {
     twig,
 };
 
-const Node = extern union {
+pub const MemInfo = struct {
+    active_memory: u64 = 0,
+    wasted_memory: u64 = 0,
+    passive_memory: u64 = 0,
+    allocation_count: u64 = 0,
+
+    pub fn combine(self: MemInfo, other: MemInfo) MemInfo {
+        return MemInfo{
+            .active_memory = self.active_memory + other.active_memory,
+            .wasted_memory = self.wasted_memory + other.wasted_memory,
+            .passive_memory = self.passive_memory + other.passive_memory,
+            .allocation_count = self.allocation_count + other.allocation_count
+        };
+    }
+};
+
+pub const Node = extern union {
     unknown: extern struct {
         tag: NodeTag,
         padding: [15]u8 = undefined,
@@ -525,6 +543,29 @@ const Node = extern union {
             else => @panic("Called `grow` on non-branch node."),
         };
     }
+
+    pub fn mem_info(self: Node) MemInfo {
+        return switch (self.unknown.tag) {
+            .none => self.branch1.mem_info(),
+            .branch1 => self.branch1.mem_info(),
+            .branch2 => self.branch2.mem_info(),
+            .branch4 => self.branch4.mem_info(),
+            .branch8 => self.branch8.mem_info(),
+            .branch16 => self.branch16.mem_info(),
+            .branch32 => self.branch32.mem_info(),
+            .branch64 => self.branch64.mem_info(),
+            .infix8 =>  self.infix8.mem_info(),
+            .infix16 => self.infix16.mem_info(),
+            .infix24 => self.infix24.mem_info(),
+            .infix32 => self.infix32.mem_info(),
+            .infix40 => self.infix40.mem_info(),
+            .infix48 => self.infix48.mem_info(),
+            .infix56 => self.infix56.mem_info(),
+            .infix64 => self.infix64.mem_info(),
+            .leaf => self.leaf.mem_info(),
+            .twig => self.twig.mem_info(),
+        };
+    }
 };
 
 const rand_lut = blk: {
@@ -555,8 +596,6 @@ fn hashByteKey(
     return mask & luts[v][pi];
 }
 
-const max_bucket_count = 64; // BRANCH_FACTOR / Bucket.SLOT_COUNT;
-
 const HLL = extern struct {
     pub const bucket_count = 32;
     buckets: [bucket_count]u8,
@@ -566,10 +605,12 @@ const HLL = extern struct {
     }
 };
 
-const Bucket = extern struct {
-    const SLOT_COUNT = 4;
+const max_bucket_count = BRANCH_FACTOR / Bucket.slot_count; //64
 
-    slots: [SLOT_COUNT]Node = [_]Node{Node{ .none = .{} }} ** SLOT_COUNT,
+const Bucket = extern struct {
+    const slot_count = 4;
+
+    slots: [slot_count]Node = [_]Node{Node{ .none = .{} }} ** slot_count,
 
     pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
         for (self.slots) |slot| {
@@ -596,7 +637,7 @@ const Bucket = extern struct {
         // / The entry to be stored in the bucket.
         entry: Node,
     ) bool {
-        return self.putIntoExisting(depth, entry)
+        return self.putIntoSame(depth, entry)
             or self.putIntoEmpty(entry)
             or self.putIntoOutdated(depth, rand_hash_used, current_count, bucket_index, entry);
     }
@@ -617,7 +658,7 @@ const Bucket = extern struct {
     }
 
     /// Updates the pointer for the key stored in this bucket.
-    pub fn putIntoExisting(
+    pub fn putIntoSame(
         self: *Bucket,
         depth: u8,
         // / The new entry value.
@@ -662,7 +703,7 @@ const Bucket = extern struct {
         // / The entry that displaces an existing entry.
         entry: Node,
     ) Node {
-        const index = random_value & (SLOT_COUNT - 1);
+        const index = random_value & (slot_count - 1);
         const prev = self.slots[index];
         self.slots[index] = entry;
         return prev;
@@ -707,8 +748,8 @@ const BranchNodeBase = extern struct {
 
     const Body = extern struct {
         leaf_count: u64,
-        ref_count: u32 = 1,
-        buffer_count: u32 = 0,
+        ref_count: u16 = 1,
+        padding: [6]u8 = undefined,
         child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
         segment_hll: HLL = HLL.init(),
         bucket: Bucket = Bucket{},
@@ -844,7 +885,7 @@ const BranchNodeBase = extern struct {
                 }
                 self_or_copy.body.child_sum_hash = new_hash;
                 self_or_copy.body.leaf_count = new_count;
-                _ = self_or_copy.body.bucket.putIntoExisting(self.branch_depth, new_child);
+                _ = self_or_copy.body.bucket.putIntoSame(self.branch_depth, new_child);
                 return @bitCast(Node, self_or_copy);
             } else {
                 const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
@@ -930,11 +971,27 @@ const BranchNodeBase = extern struct {
         return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body });
     }
 
-    fn cuckooPut(self: Head, node: Node) ?Node {
+    fn cuckooPut(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node.none
         if (self.body.bucket.putIntoEmpty(node)) {
             return null;  //TODO use none.
         }
         return node;
+    }
+
+    fn mem_info(self: Head) MemInfo {
+        var unused_slots:u8 = 0;
+        for (self.body.bucket.slots) |slot| {
+            if (slot.isNone()) {
+                unused_slots += 1;
+            }
+        }
+        
+        return MemInfo{
+            .active_memory = @sizeOf(Body),
+            .wasted_memory = @sizeOf(Node) * unused_slots,
+            .passive_memory = @sizeOf(Head),
+            .allocation_count = 1
+        };
     }
 };
 
@@ -958,8 +1015,8 @@ fn BranchNode(comptime bucket_count: u8) type {
 
         const Body = extern struct {
             leaf_count: u64,
-            ref_count: u32 = 1,
-            buffer_count: u32 = 0,
+            ref_count: u16 = 1,
+            padding: [6]u8 = undefined,
             child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
             segment_hll: HLL = HLL.init(),
             child_set: ByteBitset = ByteBitset.initEmpty(),
@@ -1337,7 +1394,20 @@ fn BranchNode(comptime bucket_count: u8) type {
         fn cuckooUpdate(self: Head, node: Node) void {
             const byte_key = node.peek(self.branch_depth).?;
             const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-            _ = self.body.buckets[bucket_index].putIntoExisting(self.branch_depth, node);
+            _ = self.body.buckets[bucket_index].putIntoSame(self.branch_depth, node);
+        }
+
+        fn mem_info(self: Head) MemInfo {
+            const child_count = self.body.child_set.count();
+            const total_slot_count = @as(usize, bucket_count) * @as(usize, Bucket.slot_count);
+            const unused_slots = total_slot_count - child_count;
+
+            return MemInfo{
+                .active_memory = @sizeOf(Body),
+                .wasted_memory = @sizeOf(Node) * unused_slots,
+                .passive_memory = @sizeOf(Head),
+                .allocation_count = 1
+            };
         }
     };
 }
@@ -1549,7 +1619,7 @@ fn InfixNode(comptime infix_len: u8) type {
                     return @bitCast(Node, self);
                 }
 
-                if(new_child.range() != (self.child_depth)) {
+                if(new_child.range() != (self.child_depth)) { // TODO We could check if this changes the infix length and save the allocation on single_owner.
                     return try WrapInfixNode(start_depth, key, new_child, allocator);
                 }
 
@@ -1578,6 +1648,17 @@ fn InfixNode(comptime infix_len: u8) type {
             const branch_node_above = try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, child_node, allocator);
 
             return try WrapInfixNode(start_depth, key, branch_node_above, allocator);
+        }
+
+        fn mem_info(self: Head) MemInfo {
+            _ = self;
+
+            return MemInfo{
+                .active_memory = @sizeOf(Body),
+                .wasted_memory = 0, // TODO this could be more accurate with parent depth info.
+                .passive_memory = @sizeOf(Head),
+                .allocation_count = 1
+            };
         }
     };
 }
@@ -1685,6 +1766,17 @@ const LeafNode = extern struct {
 
         return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
     }
+
+    fn mem_info(self: Head) MemInfo {
+        _ = self;
+
+        return MemInfo{
+            .active_memory = 0,
+            .wasted_memory = 0, // TODO this could be more accurate with parent depth info.
+            .passive_memory = @sizeOf(Head),
+            .allocation_count = 0
+        };
+    }
 };
 
 const TwigNode = extern struct {
@@ -1781,6 +1873,17 @@ const TwigNode = extern struct {
 
         return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
     }
+
+    fn mem_info(self: Head) MemInfo {
+        _ = self;
+
+        return MemInfo{
+            .active_memory = 0,
+            .wasted_memory = 0, // TODO this could be more accurate with parent depth info.
+            .passive_memory = @sizeOf(Head),
+            .allocation_count = 0
+        };
+    }
 };
 
 pub const Tree = struct {
@@ -1866,291 +1969,7 @@ pub const Tree = struct {
 
         _ = self;
 
-        var card = Card.from(
-\\┌────────────────────────────────────────────────────────────────────────────────┐
-\\│ Tree                                                                           │
-\\│━━━━━━                                                                          │
-\\│        Count: 󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀      Memory (keys): 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃            │
-\\│   Node Count: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Memory (actual): 󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄󰀄            │
-\\│  Alloc Count: 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂   Overhead (ratio): 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅            │
-\\│                                                                                │
-\\│  Node Distribution                                                             │
-\\│ ═══════════════════                                                            │
-\\│                                                                                │
-\\│                                                      infix8 󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐   │
-\\│                           branch1 󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉󰀉  infix16 󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑󰀑   │
-\\│                           branch2 󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊󰀊  infix24 󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒󰀒   │
-\\│                           branch4 󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋󰀋  infix32 󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓󰀓   │
-\\│                           branch8 󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌  infix40 󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔󰀔   │
-\\│   none 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆  branch16 󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍  infix48 󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕󰀕   │
-\\│   leaf 󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇󰀇  branch32 󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎  infix56 󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖󰀖   │
-\\│   twig 󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈󰀈  branch64 󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏  infix64 󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗󰀗   │
-\\│                                                                                │
-\\│  Density                                                                       │
-\\│ ═════════                                                                      │
-\\│                                                                                │
-\\│       ┐󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       │󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       ┘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘󰀘        │
-\\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
-\\└────────────────────────────────────────────────────────────────────────────────┘
-        ) catch unreachable;
-
-        const item_count = self.count();
-
-        var node_count: u64 = 0;
-
-        var alloc_count: u64 = 0;
-
-        var mem_keys: u64 = item_count * key_length;
-
-        var mem_actual: u64 = 0;
-
-        var none_count: u64 = 0;
-        var twig_count: u64 = 0;
-        var leaf_count: u64 = 0;
-        var branch_1_count: u64 = 0;
-        var branch_2_count: u64 = 0;
-        var branch_4_count: u64 = 0;
-        var branch_8_count: u64 = 0;
-        var branch_16_count: u64 = 0;
-        var branch_32_count: u64 = 0;
-        var branch_64_count: u64 = 0;
-        var infix_8_count: u64 = 0;
-        var infix_16_count: u64 = 0;
-        var infix_24_count: u64 = 0;
-        var infix_32_count: u64 = 0;
-        var infix_40_count: u64 = 0;
-        var infix_48_count: u64 = 0;
-        var infix_56_count: u64 = 0;
-        var infix_64_count: u64 = 0;
-
-        var density_at_depth: [key_length]u64 = [_]u64{0} ** key_length;
-
-        var node_iter = self.nodes();
-        while (node_iter.next()) |res| {
-            node_count += 1;
-            density_at_depth[res.start_depth] += 1;
-            switch (res.node.unknown.tag) {
-                .none => none_count += 1,
-                .leaf => leaf_count += 1,
-                .twig => twig_count += 1,
-                .branch1 => {
-                    branch_1_count += 1;
-                    alloc_count += 1;},
-                .branch2 => {
-                    branch_2_count += 1;
-                    alloc_count += 1;},
-                .branch4 => {
-                    branch_4_count += 1;
-                    alloc_count += 1;},
-                .branch8 => {
-                    branch_8_count += 1;
-                    alloc_count += 1;},
-                .branch16 => {
-                    branch_16_count += 1;
-                    alloc_count += 1;},
-                .branch32 => {
-                    branch_32_count += 1;
-                    alloc_count += 1;},
-                .branch64 => {
-                    branch_64_count += 1;
-                    alloc_count += 1;},
-                .infix8 => {
-                    infix_8_count += 1;
-                    alloc_count += 1;},
-                .infix16 => {
-                    infix_16_count += 1;
-                    alloc_count += 1;},
-                .infix24 => {
-                    infix_24_count += 1;
-                    alloc_count += 1;},
-                .infix32 => {
-                    infix_32_count += 1;
-                    alloc_count += 1;},
-                .infix40 => {
-                    infix_40_count += 1;
-                    alloc_count += 1;},
-                .infix48 => {
-                    infix_48_count += 1;
-                    alloc_count += 1;},
-                .infix56 => {
-                    infix_56_count += 1;
-                    alloc_count += 1;},
-                .infix64 => {
-                    infix_64_count += 1;
-                    alloc_count += 1;},
-            }
-        }
-
-        var max_density: u64 = 0;
-        for (density_at_depth) |density| {
-            max_density = std.math.max(max_density, density);
-        }
-
-        mem_actual =   branch_1_count * @sizeOf(BranchNodeBase.Body)         //
-                     + branch_2_count * @sizeOf(BranchNode(2).Body)         //
-                     + branch_4_count * @sizeOf(BranchNode(4).Body)         //
-                     + branch_8_count * @sizeOf(BranchNode(8).Body)         //
-                     + branch_16_count * @sizeOf(BranchNode(16).Body)       //
-                     + branch_32_count * @sizeOf(BranchNode(32).Body)       //
-                     + branch_64_count * @sizeOf(BranchNode(64).Body)       //
-                     + infix_8_count * @sizeOf(InfixNode(8).Body)   //
-                     + infix_16_count * @sizeOf(InfixNode(16).Body) //
-                     + infix_24_count * @sizeOf(InfixNode(24).Body) //
-                     + infix_32_count * @sizeOf(InfixNode(32).Body) //
-                     + infix_40_count * @sizeOf(InfixNode(40).Body) //
-                     + infix_48_count * @sizeOf(InfixNode(48).Body) //
-                     + infix_56_count * @sizeOf(InfixNode(56).Body) //
-                     + infix_64_count * @sizeOf(InfixNode(64).Body);
-
-        const mem_overhead: f64 = @intToFloat(f64, mem_actual) / @intToFloat(f64, mem_keys);
-
-        var count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&count_data, "{d:_>16}", .{ item_count }) catch unreachable;
-        var count_iter = (std.unicode.Utf8View.init(&count_data) catch unreachable).iterator();
-
-        var node_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&node_count_data, "{d:_>16}", .{node_count}) catch unreachable;
-        var node_count_iter = (std.unicode.Utf8View.init(&node_count_data) catch unreachable).iterator();
-
-        var alloc_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&alloc_count_data, "{d:_>16}", .{alloc_count}) catch unreachable;
-        var alloc_count_iter = (std.unicode.Utf8View.init(&alloc_count_data) catch unreachable).iterator();
-
-        var mem_keys_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&mem_keys_data, "{d:_>16}", .{mem_keys}) catch unreachable;
-        var mem_keys_iter = (std.unicode.Utf8View.init(&mem_keys_data) catch unreachable).iterator();
-
-        var mem_actual_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&mem_actual_data, "{d:_>16}", .{mem_actual}) catch unreachable;
-        var mem_actual_iter = (std.unicode.Utf8View.init(&mem_actual_data) catch unreachable).iterator();
-
-        var mem_overhead_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&mem_overhead_data, "{d:_>16}", .{mem_overhead}) catch unreachable;
-        var mem_overhead_iter = (std.unicode.Utf8View.init(&mem_overhead_data) catch unreachable).iterator();
-
-        var none_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&none_count_data, "{d:_>16}", .{none_count}) catch unreachable;
-        var none_count_iter = (std.unicode.Utf8View.init(&none_count_data) catch unreachable).iterator();
-
-        var leaf_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&leaf_count_data, "{d:_>16}", .{leaf_count}) catch unreachable;
-        var leaf_count_iter = (std.unicode.Utf8View.init(&leaf_count_data) catch unreachable).iterator();
-
-        var twig_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&twig_count_data, "{d:_>16}", .{twig_count}) catch unreachable;
-        var twig_count_iter = (std.unicode.Utf8View.init(&twig_count_data) catch unreachable).iterator();
-
-        var branch_1_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&branch_1_count_data, "{d:_>16}", .{branch_1_count}) catch unreachable;
-        var branch_1_count_iter = (std.unicode.Utf8View.init(&branch_1_count_data) catch unreachable).iterator();
-
-        var branch_2_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&branch_2_count_data, "{d:_>16}", .{branch_2_count}) catch unreachable;
-        var branch_2_count_iter = (std.unicode.Utf8View.init(&branch_2_count_data) catch unreachable).iterator();
-
-        var branch_4_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&branch_4_count_data, "{d:_>16}", .{branch_4_count}) catch unreachable;
-        var branch_4_count_iter = (std.unicode.Utf8View.init(&branch_4_count_data) catch unreachable).iterator();
-
-        var branch_8_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&branch_8_count_data, "{d:_>16}", .{branch_8_count}) catch unreachable;
-        var branch_8_count_iter = (std.unicode.Utf8View.init(&branch_8_count_data) catch unreachable).iterator();
-
-        var branch_16_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&branch_16_count_data, "{d:_>16}", .{branch_16_count}) catch unreachable;
-        var branch_16_count_iter = (std.unicode.Utf8View.init(&branch_16_count_data) catch unreachable).iterator();
-
-        var branch_32_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&branch_32_count_data, "{d:_>16}", .{branch_32_count}) catch unreachable;
-        var branch_32_count_iter = (std.unicode.Utf8View.init(&branch_32_count_data) catch unreachable).iterator();
-
-        var branch_64_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&branch_64_count_data, "{d:_>16}", .{branch_64_count}) catch unreachable;
-        var branch_64_count_iter = (std.unicode.Utf8View.init(&branch_64_count_data) catch unreachable).iterator();
-
-        var infix_8_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_8_count_data, "{d:_>16}", .{infix_8_count}) catch unreachable;
-        var infix_8_count_iter = (std.unicode.Utf8View.init(&infix_8_count_data) catch unreachable).iterator();
-
-        var infix_16_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_16_count_data, "{d:_>16}", .{infix_16_count}) catch unreachable;
-        var infix_16_count_iter = (std.unicode.Utf8View.init(&infix_16_count_data) catch unreachable).iterator();
-
-        var infix_24_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_24_count_data, "{d:_>16}", .{infix_24_count}) catch unreachable;
-        var infix_24_count_iter = (std.unicode.Utf8View.init(&infix_24_count_data) catch unreachable).iterator();
-
-        var infix_32_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_32_count_data, "{d:_>16}", .{infix_32_count}) catch unreachable;
-        var infix_32_count_iter = (std.unicode.Utf8View.init(&infix_32_count_data) catch unreachable).iterator();
-
-        var infix_40_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_40_count_data, "{d:_>16}", .{infix_40_count}) catch unreachable;
-        var infix_40_count_iter = (std.unicode.Utf8View.init(&infix_40_count_data) catch unreachable).iterator();
-
-        var infix_48_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_48_count_data, "{d:_>16}", .{infix_48_count}) catch unreachable;
-        var infix_48_count_iter = (std.unicode.Utf8View.init(&infix_48_count_data) catch unreachable).iterator();
-
-        var infix_56_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_56_count_data, "{d:_>16}", .{infix_56_count}) catch unreachable;
-        var infix_56_count_iter = (std.unicode.Utf8View.init(&infix_56_count_data) catch unreachable).iterator();
-
-        var infix_64_count_data: [16:0]u8 = undefined;
-        _ = std.fmt.bufPrint(&infix_64_count_data, "{d:_>16}", .{infix_64_count}) catch unreachable;
-        var infix_64_count_iter = (std.unicode.Utf8View.init(&infix_64_count_data) catch unreachable).iterator();
-
-        const density_pos = card.findTopLeft('\u{F0018}').?;
-
-        for (card.grid) |*row, global_y| {
-            for (row.*) |*cell, global_x| {
-                cell.* = switch (cell.*) {
-                    '\u{F0000}' => count_iter.nextCodepoint().?,
-                    '\u{F0001}' => node_count_iter.nextCodepoint().?,
-                    '\u{F0002}' => alloc_count_iter.nextCodepoint().?,
-                    '\u{F0003}' => mem_keys_iter.nextCodepoint().?,
-                    '\u{F0004}' => mem_actual_iter.nextCodepoint().?,
-                    '\u{F0005}' => mem_overhead_iter.nextCodepoint().?,
-                    '\u{F0006}' => none_count_iter.nextCodepoint().?,
-                    '\u{F0007}' => leaf_count_iter.nextCodepoint().?,
-                    '\u{F0008}' => twig_count_iter.nextCodepoint().?,
-                    '\u{F0009}' => branch_1_count_iter.nextCodepoint().?,
-                    '\u{F000A}' => branch_2_count_iter.nextCodepoint().?,
-                    '\u{F000B}' => branch_4_count_iter.nextCodepoint().?,
-                    '\u{F000C}' => branch_8_count_iter.nextCodepoint().?,
-                    '\u{F000D}' => branch_16_count_iter.nextCodepoint().?,
-                    '\u{F000E}' => branch_32_count_iter.nextCodepoint().?,
-                    '\u{F000F}' => branch_64_count_iter.nextCodepoint().?,
-                    '\u{F0010}' => infix_8_count_iter.nextCodepoint().?,
-                    '\u{F0011}' => infix_16_count_iter.nextCodepoint().?,
-                    '\u{F0012}' => infix_24_count_iter.nextCodepoint().?,
-                    '\u{F0013}' => infix_32_count_iter.nextCodepoint().?,
-                    '\u{F0014}' => infix_40_count_iter.nextCodepoint().?,
-                    '\u{F0015}' => infix_48_count_iter.nextCodepoint().?,
-                    '\u{F0016}' => infix_56_count_iter.nextCodepoint().?,
-                    '\u{F0017}' => infix_64_count_iter.nextCodepoint().?,
-                    '\u{F0018}' => blk: {
-                        const x: u64 = global_x - density_pos.x;
-                        const y: u64 = global_y - density_pos.y;
-
-                        const density = @intToFloat(f64, density_at_depth[x]);
-                        const norm_density = density / @intToFloat(f64, max_density);
-
-                        const s: u21 = if (norm_density > (@intToFloat(f64, (7 - y)) * (1.0 / 8.0))) '█' else ' ';
-                        break :blk s;
-                    },
-                    else => cell.*,
-                };
-            }
-        }
-
+        const card = cards.treeCard(self);
         try writer.print("{s}\n", .{card});
         try writer.writeAll("");
     }
@@ -2187,6 +2006,22 @@ pub const Tree = struct {
 
     pub fn isEqual(self: *Tree, other: *Tree) bool {
       return self.child.hash(undefined).equal(other.child.hash(undefined));
+    }
+
+    pub fn mem_info(self: *Tree) MemInfo {
+        var total = MemInfo{
+            .active_memory = @sizeOf(Tree),
+            .wasted_memory = 0,
+            .passive_memory = 0,
+            .allocation_count = 0
+        };
+
+        var node_iter = self.nodes();
+        while(node_iter.next()) |res| {
+            total = total.combine(res.node.mem_info());
+        }
+
+        return total;
     }
 
     // isSubsetOf(other) {
