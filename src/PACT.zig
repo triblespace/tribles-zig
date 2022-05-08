@@ -980,15 +980,18 @@ const BranchNodeBase = extern struct {
 
     fn mem_info(self: Head) MemInfo {
         var unused_slots:u8 = 0;
-        for (self.body.bucket.slots) |slot| {
-            if (slot.isNone()) {
+        var wasted_infix_bytes: usize = 0;
+        for (self.body.bucket.slots) |child| {
+            if (child.isNone()) {
                 unused_slots += 1;
+            } else {
+                wasted_infix_bytes += (self.branch_depth - child.range());
             }
         }
         
         return MemInfo{
             .active_memory = @sizeOf(Body),
-            .wasted_memory = @sizeOf(Node) * unused_slots,
+            .wasted_memory = (@sizeOf(Node) * unused_slots) + wasted_infix_bytes,
             .passive_memory = @sizeOf(Head),
             .allocation_count = 1
         };
@@ -1402,9 +1405,16 @@ fn BranchNode(comptime bucket_count: u8) type {
             const total_slot_count = @as(usize, bucket_count) * @as(usize, Bucket.slot_count);
             const unused_slots = total_slot_count - child_count;
 
+            var wasted_infix_bytes: usize = 0;
+            var child_iterator = self.body.child_set;
+            while (child_iterator.drainNext(true)) |child_byte_key| {
+                const child = self.cuckooGet(@intCast(u8, child_byte_key));
+                wasted_infix_bytes += (self.branch_depth - child.range());
+            }
+
             return MemInfo{
                 .active_memory = @sizeOf(Body),
-                .wasted_memory = @sizeOf(Node) * unused_slots,
+                .wasted_memory = (@sizeOf(Node) * unused_slots) + wasted_infix_bytes,
                 .passive_memory = @sizeOf(Head),
                 .allocation_count = 1
             };
