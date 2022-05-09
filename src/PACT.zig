@@ -4,44 +4,15 @@ const expectEqual = std.testing.expectEqual;
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 const Card = @import("Card.zig").Card;
 const cards = @import("./PACT/cards.zig");
+const hash = @import("./PACT/Hash.zig");
+const Hash = hash.Hash;
+const MinHash = hash.MinHash;
 
 
 const mem = std.mem;
 
-// TODO: change hash set index to boolean or at least make set -> 1, unset -> 0
-
-// Uninitialized memory initialized by init()
-var instance_secret: [16]u8 = undefined;
-
 pub fn init() void {
-    // XXX: (crest) Should this be a deterministic pseudo-RNG seeded by a constant for reproducable tests?
-    std.crypto.random.bytes(&instance_secret);
-}
-
-pub const Hash = extern struct {
-    data: [16]u8,
-
-    pub fn xor(left: Hash, right: Hash) Hash { // TODO make this vector SIMD stuff?
-        var hash: Hash = undefined;
-        for (hash.data) |*byte, i| {
-            byte.* = left.data[i] ^ right.data[i];
-        }
-        return hash;
-    }
-
-    pub fn equal(left: Hash, right: Hash) bool {
-        return std.mem.eql(u8, &left.data, &right.data);
-    }
-};
-// const Vector = std.meta.Vector;
-// const Hash = Vector(16, u8);
-
-pub fn keyHash(key: []const u8) Hash {
-    const siphash = comptime std.hash.SipHash128(2, 4);
-    var hash: Hash = undefined;
-    siphash.create(&hash.data, key, &instance_secret);
-
-    return hash;
+    hash.init();
 }
 
 /// The Tries branching factor, fixed to the number of elements
@@ -380,7 +351,7 @@ pub const Node = extern union {
 
     pub fn hash(self: Node, prefix: [key_length]u8) Hash {
         return switch (self.unknown.tag) {
-            .none => Hash{.data=[_]u8{0} ** 16},
+            .none => Hash{},
             .branch1 => self.branch1.hash(prefix),
             .branch2 => self.branch2.hash(prefix),
             .branch4 => self.branch4.hash(prefix),
@@ -596,15 +567,6 @@ fn hashByteKey(
     return mask & luts[v][pi];
 }
 
-const HLL = extern struct {
-    pub const bucket_count = 32;
-    buckets: [bucket_count]u8,
-
-    pub fn init() HLL {
-        return HLL{ .buckets = [_]u8{0} ** bucket_count };
-    }
-};
-
 const max_bucket_count = BRANCH_FACTOR / Bucket.slot_count; //64
 
 const Bucket = extern struct {
@@ -750,8 +712,8 @@ const BranchNodeBase = extern struct {
         leaf_count: u64,
         ref_count: u16 = 1,
         padding: [6]u8 = undefined,
-        child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
-        segment_hll: HLL = HLL.init(),
+        node_hash: Hash = Hash{},
+        segment_minhash: MinHash = MinHash{},
         bucket: Bucket = Bucket{},
     };
 
@@ -788,7 +750,7 @@ const BranchNodeBase = extern struct {
         _ = branch_node.cuckooPut(left); // We know that these can't fail.
         _ = branch_node.cuckooPut(right);
 
-        branch_node.body.child_sum_hash = Hash.xor(left.hash(key), right.hash(key));
+        branch_node.body.node_hash = left.hash(key).combine(right.hash(key));
         branch_node.body.leaf_count = left.count() + right.count();
 
         return @bitCast(Node, branch_node);
@@ -822,7 +784,7 @@ const BranchNodeBase = extern struct {
 
     pub fn hash(self: Head, prefix: [key_length]u8) Hash {
         _ = prefix;
-        return self.body.child_sum_hash;
+        return self.body.node_hash;
     }
 
     pub fn range(self: Head) u8 {
@@ -872,10 +834,9 @@ const BranchNodeBase = extern struct {
                 const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
                 const new_child_hash = new_child.hash(key);
                 if (Hash.equal(old_child_hash, new_child_hash)) {
-                    std.debug.print("Key already in tree. Hash is equal.\n{s}\n{s}\n", .{ std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data) });
                     return @bitCast(Node, self);
                 }
-                const new_hash = Hash.xor(Hash.xor(self.body.child_sum_hash, old_child_hash), new_child_hash);
+                const new_hash = self.body.node_hash.update(old_child_hash, new_child_hash);
                 const new_count = self.body.leaf_count - old_child_count + new_child.count();
 
                 var self_or_copy = self;
@@ -883,18 +844,18 @@ const BranchNodeBase = extern struct {
                     self_or_copy = try self.copy(allocator);
                     old_child.rel(allocator);
                 }
-                self_or_copy.body.child_sum_hash = new_hash;
+                self_or_copy.body.node_hash = new_hash;
                 self_or_copy.body.leaf_count = new_count;
                 _ = self_or_copy.body.bucket.putIntoSame(self.branch_depth, new_child);
                 return @bitCast(Node, self_or_copy);
             } else {
                 const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
-                const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(key));
+                const new_hash = self.body.node_hash.combine(new_child_node.hash(key));
                 const new_count = self.body.leaf_count + 1;
 
                 var self_or_copy = if (single_owner) self else try self.copy(allocator);
 
-                self_or_copy.body.child_sum_hash = new_hash;
+                self_or_copy.body.node_hash = new_hash;
                 self_or_copy.body.leaf_count = new_count;
 
                 var displaced = self_or_copy.cuckooPut(new_child_node);
@@ -954,10 +915,9 @@ const BranchNodeBase = extern struct {
     fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
         const bucket = self.body.bucket;
 
-        //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
         const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
         const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
-        //std.debug.print("Growed:{*}\n", .{new_body});
+
         new_body.buckets[0] = bucket;
         new_body.buckets[1] = bucket;
         
@@ -1020,8 +980,8 @@ fn BranchNode(comptime bucket_count: u8) type {
             leaf_count: u64,
             ref_count: u16 = 1,
             padding: [6]u8 = undefined,
-            child_sum_hash: Hash = .{ .data = [_]u8{0} ** 16 },
-            segment_hll: HLL = HLL.init(),
+            node_hash: Hash = Hash{},
+            segment_minhash: MinHash = MinHash{},
             child_set: ByteBitset = ByteBitset.initEmpty(),
             rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
             buckets: Buckets = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
@@ -1037,121 +997,10 @@ fn BranchNode(comptime bucket_count: u8) type {
         ) !void {
             _ = fmt;
             _ = options;
-
             _ = self;
-            var card = Card.from(
-\\┌────────────────────────────────────────────────────────────────────────────────┐
-\\│ Branch Node @󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀󰀀                                                  │
-\\│━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                  │
-\\│                                                                                │
-\\│ Metadata                                                                       │
-\\│ ═════════                                                                      │
-\\│                                                                                │
-\\│   Hash: 󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁󰀁    Leafs: 󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂󰀂        │
-\\│   Ref#: 󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃󰀃                Depth: 󰀇󰀇                          │
-\\│                                                                                │
-\\│ Infix                                                                          │
-\\│ ══════                                                                         │
-\\│                                                                                │
-\\│   Head: 󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅󰀅                                                           │
-\\│                                                                                │
-\\│   Body: 󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆       │
-\\│         󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆󰀆       │
-\\│         ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔         │
-\\│ Children                                                                       │
-\\│ ══════════                                                                     │
-\\│                         TODO add %      0123456789ABCDEF     0123456789ABCDEF  │
-\\│  ▼                                     ┌────────────────┐   ┌────────────────┐ │
-\\│  ┌                  ● Seq Hash       0_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ 8_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  │󰀈                 ◆ Rand Hash      1_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ 9_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  │󰀉                 ○ Seq Missing    2_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ A_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  │󰀊󰀊                ◇ Rand Missing   3_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ B_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  │󰀋󰀋󰀋󰀋                               4_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ C_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  │󰀌󰀌󰀌󰀌󰀌󰀌󰀌󰀌                           5_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ D_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  │󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍󰀍                   6_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ E_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  │󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎󰀎   7_│󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏󰀏│ F_│󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐󰀐│ │
-\\│  └                                     └────────────────┘   └────────────────┘ │
-\\└────────────────────────────────────────────────────────────────────────────────┘
-            ) catch unreachable;
-
-            var addr_data: [16:0]u8 = undefined;
-            _ = std.fmt.bufPrint(&addr_data, "{x:0>16}", .{@ptrToInt(self.body)}) catch unreachable;
-            var addr_iter = (std.unicode.Utf8View.init(&addr_data) catch unreachable).iterator();
-
-            var hash_data: [32:0]u8 = undefined;
-            _ = std.fmt.bufPrint(&hash_data, "{s:_>32}", .{std.fmt.fmtSliceHexUpper(&self.body.child_sum_hash.data)}) catch unreachable;
-            var hash_iter = (std.unicode.Utf8View.init(&hash_data) catch unreachable).iterator();
-
-            var leaf_count_data: [20:0]u8 = undefined;
-            _ = std.fmt.bufPrint(&leaf_count_data, "{d:_>20}", .{self.body.leaf_count}) catch unreachable;
-            var leaf_count_iter = (std.unicode.Utf8View.init(&leaf_count_data) catch unreachable).iterator();
-
-            var ref_count_data: [20:0]u8 = undefined;
-            _ = std.fmt.bufPrint(&ref_count_data, "{d:_>20}", .{self.body.ref_count}) catch unreachable;
-            var ref_count_iter = (std.unicode.Utf8View.init(&ref_count_data) catch unreachable).iterator();
-
-            var head_infix_data: [12:0]u8 = undefined;
-            _ = std.fmt.bufPrint(&head_infix_data, "{s:_>12}", .{std.fmt.fmtSliceHexUpper(&self.infix)}) catch unreachable;
-            var head_infix_iter = (std.unicode.Utf8View.init(&head_infix_data) catch unreachable).iterator();
-
-            var branch_depth_data: [2:0]u8 = undefined;
-            _ = std.fmt.bufPrint(&branch_depth_data, "{d:_>2}", .{self.branch_depth}) catch unreachable;
-            var branch_depth_iter = (std.unicode.Utf8View.init(&branch_depth_data) catch unreachable).iterator();
-
-            const lower_childset_pos = card.findTopLeft('\u{F000F}').?;
-            const upper_childset_pos = card.findTopLeft('\u{F0010}').?;
-
-            for (card.grid) |*row, y| {
-                for (row.*) |*cell, x| {
-                    cell.* = switch (cell.*) {
-                        '\u{F0000}' => addr_iter.nextCodepoint().?,
-                        '\u{F0001}' => hash_iter.nextCodepoint().?,
-                        '\u{F0002}' => leaf_count_iter.nextCodepoint() orelse unreachable,
-                        '\u{F0003}' => ref_count_iter.nextCodepoint() orelse unreachable,
-                        '\u{F0005}' => head_infix_iter.nextCodepoint() orelse unreachable,
-                        '\u{F0006}' => '_',
-                        '\u{F0007}' => branch_depth_iter.nextCodepoint() orelse unreachable,
-                        '\u{F0008}' => if (bucket_count >= 1) '█' else '░',
-                        '\u{F0009}' => if (bucket_count >= 2) '█' else '░',
-                        '\u{F000A}' => if (bucket_count >= 4) '█' else '░',
-                        '\u{F000B}' => if (bucket_count >= 8) '█' else '░',
-                        '\u{F000C}' => if (bucket_count >= 16) '█' else '░',
-                        '\u{F000D}' => if (bucket_count >= 32) '█' else '░',
-                        '\u{F000E}' => if (bucket_count >= 64) '█' else '░',
-                        '\u{F000F}' => blk: {
-                            const lx: u8 = @intCast(u8, x) - lower_childset_pos.x;
-                            const ly: u8 = @intCast(u8, y) - lower_childset_pos.y;
-                            const byte_key: u8 = @as(u8, lx + (ly * 16));
-
-                            if (!self.body.child_set.isSet(byte_key)) break :blk ' ';
-
-                            var s: u21 = undefined;
-                            const rand_hash_used = self.body.rand_hash_used.isSet(byte_key);
-
-                            const bucket_index = hashByteKey(rand_hash_used, bucket_count, byte_key);
-                            if (!self.body.buckets[bucket_index].get(self.branch_depth, byte_key).isNone()) {
-                                s = if (rand_hash_used) '◆' else '●';
-                            } else {
-                                s = if (rand_hash_used) '◇' else '○';
-                            }
-
-                            break :blk s;
-                        },
-                        '\u{F0010}' => blk: {
-                            const lx: u8 = @intCast(u8, x) - upper_childset_pos.x;
-                            const ly: u8 = @intCast(u8, y) - upper_childset_pos.y;
-                            const byte: u8 = @as(u8, 128 + lx + (ly * 16));
-                            if (!self.body.child_set.isSet(byte)) break :blk ' ';
-                            const s: u21 = if (self.body.rand_hash_used.isSet(byte)) '◆' else '●';
-                            break :blk s;
-                        },
-                        else => cell.*,
-                    };
-                }
-            }
-
-            try writer.print("{s}\n", .{card});
-            try writer.writeAll("");
+            //const card = cards.branchNodeCard(self);
+            //try writer.print("{s}\n", .{card});
+            try writer.writeAll("TODO");
         }
 
         pub fn init(branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
@@ -1173,7 +1022,7 @@ fn BranchNode(comptime bucket_count: u8) type {
             _ = branch_node.cuckooPut(left); // We know that these can't fail.
             _ = branch_node.cuckooPut(right);
 
-            branch_node.body.child_sum_hash = Hash.xor(left.hash(key), right.hash(key));
+            branch_node.body.node_hash = left.hash(key).combine(right.hash(key));
             branch_node.body.leaf_count = left.count() + right.count();
 
             return @bitCast(Node, branch_node);
@@ -1206,7 +1055,7 @@ fn BranchNode(comptime bucket_count: u8) type {
 
         pub fn hash(self: Head, prefix: [key_length]u8) Hash {
             _ = prefix;
-            return self.body.child_sum_hash;
+            return self.body.node_hash;
         }
 
         pub fn range(self: Head) u8 {
@@ -1248,11 +1097,10 @@ fn BranchNode(comptime bucket_count: u8) type {
                     const old_child_count = old_child.count();
                     const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
                     const new_child_hash = new_child.hash(key);
-                    if (Hash.equal(old_child_hash, new_child_hash)) {
-                        std.debug.print("Key already in tree. Hash is equal.\n{s}\n{s}\n", .{ std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data) });
+                    if (old_child_hash.equal(new_child_hash)) {
                         return @bitCast(Node, self);
                     }
-                    const new_hash = Hash.xor(Hash.xor(self.body.child_sum_hash, old_child_hash), new_child_hash);
+                    const new_hash = self.body.node_hash.update(old_child_hash, new_child_hash);
                     const new_count = self.body.leaf_count - old_child_count + new_child.count();
 
                     var self_or_copy = self;
@@ -1260,18 +1108,18 @@ fn BranchNode(comptime bucket_count: u8) type {
                         self_or_copy = try self.copy(allocator);
                         old_child.rel(allocator);
                     }
-                    self_or_copy.body.child_sum_hash = new_hash;
+                    self_or_copy.body.node_hash = new_hash;
                     self_or_copy.body.leaf_count = new_count;
                     self_or_copy.cuckooUpdate(new_child);
                     return @bitCast(Node, self_or_copy);
                 } else {
                     const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
-                    const new_hash = Hash.xor(self.body.child_sum_hash, new_child_node.hash(key));
+                    const new_hash = self.body.node_hash.combine(new_child_node.hash(key));
                     const new_count = self.body.leaf_count + 1;
 
                     var self_or_copy = if (single_owner) self else try self.copy(allocator);
 
-                    self_or_copy.body.child_sum_hash = new_hash;
+                    self_or_copy.body.node_hash = new_hash;
                     self_or_copy.body.leaf_count = new_count;
 
                     var displaced = self_or_copy.cuckooPut(new_child_node);
@@ -1625,7 +1473,6 @@ fn InfixNode(comptime infix_len: u8) type {
                 const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
                 const new_child_hash = new_child.hash(key);
                 if (Hash.equal(old_child_hash, new_child_hash)) {
-                    std.debug.print("Key already in tree. Hash is equal.\n{s}\n{s}\n", .{ std.fmt.fmtSliceHexUpper(&old_child_hash.data), std.fmt.fmtSliceHexUpper(&new_child_hash.data) });
                     return @bitCast(Node, self);
                 }
 
@@ -1733,7 +1580,7 @@ const LeafNode = extern struct {
     pub fn hash(self: Head, prefix: [key_length]u8) Hash {
         var key = prefix;
         mem.copy(u8, key[key_start..], self.suffix[0..]);
-        return keyHash(&key);
+        return Hash.init(&key);
     }
 
     pub fn range(self: Head) u8 {
@@ -1840,7 +1687,7 @@ const TwigNode = extern struct {
     pub fn hash(self: Head, prefix: [key_length]u8) Hash {
         var key = prefix;
         mem.copy(u8, key[key_start..], self.suffix[0..]);
-        return keyHash(&key);
+        return Hash.init(&key);
     }
     
     pub fn range(self: Head) u8 {
@@ -2018,7 +1865,7 @@ pub const Tree = struct {
       return self.child.hash(undefined).equal(other.child.hash(undefined));
     }
 
-    pub fn mem_info(self: *Tree) MemInfo {
+    pub fn mem_info(self: *const Tree) MemInfo {
         var total = MemInfo{
             .active_memory = @sizeOf(Tree),
             .wasted_memory = 0,

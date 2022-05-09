@@ -11,13 +11,13 @@ const keyHash = @import("./PACT.zig").keyHash;
 
 const sample_size: usize = 1;
 const data_size: usize = 1000000;
-const change_prob = 0.1;
+const change_prob = 0.5;
 
 pub fn main() !void {
     PACT.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_tribleset_write();
+        try benchmark_pact_write();
     }
     //try benchmark_hashing();
     //try benchmark_std();
