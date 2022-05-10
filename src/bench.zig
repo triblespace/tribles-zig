@@ -5,7 +5,7 @@ const time = std.time;
 const coz = @import("./coz.zig");
 
 const Trible = @import("Trible.zig").Trible;
-const PACT = @import("./PACT.zig");
+const pact = @import("./PACT.zig");
 const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
 
@@ -13,8 +13,10 @@ const sample_size: usize = 1;
 const data_size: usize = 1000000;
 const change_prob = 0.5;
 
+const PACT = pact.PACT(&[_]u8{16, 16, 32}, 32, u64);
+
 pub fn main() !void {
-    PACT.init();
+    pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
         try benchmark_pact_iterate();
