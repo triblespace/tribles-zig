@@ -17,7 +17,7 @@ pub fn main() !void {
     PACT.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_pact_write();
+        try benchmark_pact_iterate();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -126,7 +126,7 @@ pub fn benchmark_pact_iterate() !void {
     var i: u64 = 0;
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
-        try tree.put(&t.data, null);
+        try tree.put(t.data, null);
     }
 
     std.debug.print("Iterating nodes of PACT with {d} tribles.\n", .{data_size});

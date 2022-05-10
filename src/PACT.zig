@@ -372,6 +372,29 @@ pub const Node = extern union {
         };
     }
 
+    pub fn minhash(self: Node, prefix: [key_length]u8, depth: u8) Hash {
+        return switch (self.unknown.tag) {
+            .none => Hash{},
+            .branch1 => self.branch1.minhash(prefix, depth),
+            .branch2 => self.branch2.minhash(prefix, depth),
+            .branch4 => self.branch4.minhash(prefix, depth),
+            .branch8 => self.branch8.minhash(prefix, depth),
+            .branch16 => self.branch16.minhash(prefix, depth),
+            .branch32 => self.branch32.minhash(prefix, depth),
+            .branch64 => self.branch64.minhash(prefix, depth),
+            .infix8 =>  self.infix8.minhash(prefix, depth),
+            .infix16 => self.infix16.minhash(prefix, depth),
+            .infix24 => self.infix24.minhash(prefix, depth),
+            .infix32 => self.infix32.minhash(prefix, depth),
+            .infix40 => self.infix40.minhash(prefix, depth),
+            .infix48 => self.infix48.minhash(prefix, depth),
+            .infix56 => self.infix56.minhash(prefix, depth),
+            .infix64 => self.infix64.minhash(prefix, depth),
+            .leaf => self.leaf.minhash(prefix, depth),
+            .twig => self.twig.minhash(prefix, depth),
+        };
+    }
+
     pub fn range(self: Node) u8 {
         return switch (self.unknown.tag) {
             .none => @panic("Called `range` on none."),
@@ -711,7 +734,8 @@ const BranchNodeBase = extern struct {
     const Body = extern struct {
         leaf_count: u64,
         ref_count: u16 = 1,
-        padding: [6]u8 = undefined,
+        padding: [2]u8 = undefined,
+        segment_count = 1,
         node_hash: Hash = Hash{},
         segment_minhash: MinHash = MinHash{},
         bucket: Bucket = Bucket{},
@@ -785,6 +809,14 @@ const BranchNodeBase = extern struct {
     pub fn hash(self: Head, prefix: [key_length]u8) Hash {
         _ = prefix;
         return self.body.node_hash;
+    }
+
+    pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
+        _ = self;
+        _ = prefix;
+        _ = depth;
+        return MinHash{};
+        //return self.body.segment_minhash;
     }
 
     pub fn range(self: Head) u8 {
@@ -1056,6 +1088,14 @@ fn BranchNode(comptime bucket_count: u8) type {
         pub fn hash(self: Head, prefix: [key_length]u8) Hash {
             _ = prefix;
             return self.body.node_hash;
+        }
+
+        pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
+            _ = self;
+            _ = prefix;
+            _ = depth;
+            return MinHash{};
+            //return self.body.segment_minhash;
         }
 
         pub fn range(self: Head) u8 {
@@ -1413,6 +1453,24 @@ fn InfixNode(comptime infix_len: u8) type {
             return self.body.child.hash(key);
         }
 
+        pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
+            _ = self;
+            _ = prefix;
+            _ = depth;
+            return MinHash{};
+            // var key = prefix;
+            // const key_start_head = self.child_depth - @minimum(infix_len, self.child_depth);
+            // const key_start_body = self.child_depth - @minimum(body_infix_len, self.child_depth);
+
+            // const infix_start_head = @minimum(head_infix_len, depth_to_infix(infix_len, self.child_depth, key_start_head));
+            // const infix_start_body = depth_to_infix(body_infix_len, self.child_depth, key_start_body);
+
+            // mem.copy(u8, key[key_start_head..key_start_body], self.infix[infix_start_head..]);
+            // mem.copy(u8, key[key_start_body..self.child_depth], self.body.infix[infix_start_body..]);
+
+            // return self.body.child.hash(key);
+        }
+
         pub fn range(self: Head) u8 {
             return self.child_depth - @minimum(self.child_depth, infix_len);
         }
@@ -1583,6 +1641,13 @@ const LeafNode = extern struct {
         return Hash.init(&key);
     }
 
+    pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
+        _ = self;
+        _ = prefix;
+        _ = depth;
+        return MinHash{};
+    }
+
     pub fn range(self: Head) u8 {
         _ = self;
         return key_length - suffix_len;
@@ -1688,6 +1753,13 @@ const TwigNode = extern struct {
         var key = prefix;
         mem.copy(u8, key[key_start..], self.suffix[0..]);
         return Hash.init(&key);
+    }
+
+    pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
+        _ = self;
+        _ = prefix;
+        _ = depth;
+        return MinHash{};
     }
     
     pub fn range(self: Head) u8 {
