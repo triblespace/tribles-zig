@@ -1,5 +1,6 @@
 const std = @import("std");
-const PACT = @import("./PACT.zig");
+const PACT = @import("./PACT.zig").PACT;
+const MemInfo = @import("./MemInfo.zig").MemInfo;
 const Trible = @import("./Trible.zig").Trible;
 const mem = std.mem;
 const allocError = std.mem.Allocator.Error;
@@ -12,28 +13,38 @@ pub fn isZeroes(bytes: [16]u8) bool {
     return true;
 }
 
+const EAVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree;
+const EVAIndex = PACT(&[_]u8{16, 32, 16}, 32, u8).Tree;
+const AEVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree;
+const AVEIndex = PACT(&[_]u8{16, 32, 16}, 32, u8).Tree;
+const VEAIndex = PACT(&[_]u8{32, 16, 16}, 32, u8).Tree;
+const VAEIndex = PACT(&[_]u8{32, 16, 16}, 32, u8).Tree;
+const EisAIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree; // Same order as EAV
+const EisVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree; // Same order as EAV
+const AisVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree; // Same order as AEV
+
 pub const TribleSet = struct {
-    eav: PACT.Tree,
-    eva: PACT.Tree,
-    aev: PACT.Tree,
-    ave: PACT.Tree,
-    vea: PACT.Tree,
-    vae: PACT.Tree,
-    eIsA: PACT.Tree, // Same order as EAV
-    eIsV: PACT.Tree, // Same order as EAV
-    aIsV: PACT.Tree, // Same order as AEV
+    eav: EAVIndex,
+    eva: EVAIndex,
+    aev: AEVIndex,
+    ave: AVEIndex,
+    vea: VEAIndex,
+    vae: VAEIndex,
+    eIsA: EisAIndex,
+    eIsV: EisVIndex,
+    aIsV: AisVIndex,
 
     pub fn init(allocator: std.mem.Allocator) TribleSet {
         return TribleSet{
-            .eav = PACT.Tree.init(allocator),
-            .eva = PACT.Tree.init(allocator),
-            .aev = PACT.Tree.init(allocator),
-            .ave = PACT.Tree.init(allocator),
-            .vea = PACT.Tree.init(allocator),
-            .vae = PACT.Tree.init(allocator),
-            .eIsA = PACT.Tree.init(allocator),
-            .eIsV = PACT.Tree.init(allocator),
-            .aIsV = PACT.Tree.init(allocator),
+            .eav = EAVIndex.init(allocator),
+            .eva = EVAIndex.init(allocator),
+            .aev = AEVIndex.init(allocator),
+            .ave = AVEIndex.init(allocator),
+            .vea = VEAIndex.init(allocator),
+            .vae = VAEIndex.init(allocator),
+            .eIsA = EisAIndex.init(allocator),
+            .eIsV = EisVIndex.init(allocator),
+            .aIsV = AisVIndex.init(allocator),
         };
     }
 
@@ -94,8 +105,8 @@ pub const TribleSet = struct {
         }
     }
 
-    pub fn mem_info(self: *TribleSet) PACT.MemInfo {
-        var total = PACT.MemInfo{};
+    pub fn mem_info(self: *TribleSet) MemInfo {
+        var total = MemInfo{};
 
         total = total.combine(self.eav.mem_info());
         total = total.combine(self.eva.mem_info());
