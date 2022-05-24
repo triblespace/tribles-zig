@@ -2158,16 +2158,41 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 return self.child.isNone() or (!other.child.isNone() and _isSubsetOf(self.child, other.child, 0, undefined));
             }
 
-        //     isIntersecting(other) {
-        //     return (
-        //         this.keyLength === other.keyLength &&
-        //         !!this.child &&
-        //         !!other.child &&
-        //         (this.child === other.child ||
-        //         hash_equal(this.child.hash, other.child.hash) ||
-        //         _isIntersecting(this.child, other.child))
-        //     );
-        //     }
+            fn _isIntersecting(leftNode: Node, rightNode: Node, initial_depth: u8, prefix: [key_length]u8) bool {
+                if (leftNode.hash(prefix).equal(rightNode.hash(prefix))) return true;
+
+                const max_depth = std.math.min(leftNode.coveredDepth(), rightNode.coveredDepth());
+                var depth = initial_depth;
+                while (depth < max_depth):(depth += 1) {
+                    const left_peek = leftNode.peek(depth);
+                    const right_peek = rightNode.peek(depth);
+                    if (left_peek != right_peek) break;
+                    prefix[depth] = left_peek;
+                }
+                if (depth == key_length) return true;
+
+                const intersect_childbits = ByteBitset.initFull();
+
+                leftNode.propose(depth, intersect_childbits);
+                rightNode.propose(depth, intersect_childbits);
+
+                while (intersect_childbits.drainNext(true)) | index | {
+                    const left_child = leftNode.get(depth, index);
+                    const right_child = rightNode.get(depth, index);
+                    prefix[depth] = index;
+                    if (_isIntersecting(left_child, right_child, depth + 1, prefix)) {
+                        return true;
+                    }
+                }
+
+                return false;
+            }
+
+            pub fn isIntersecting(self: *const Tree, other: *const Tree ) bool {
+                return !self.child.isNone() and
+                       !other.child.isNone() and
+                       _isIntersecting(self.child, other.child, 0, undefined);
+            }
 
         //     union(other) {
         //     const thisNode = this.child;
