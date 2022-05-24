@@ -546,17 +546,17 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 };
             }
 
-            fn cuckooPut(self: Node, node: Node) ?Node {
+            fn reinsertBranch(self: Node, node: Node) ?Node {
                 return switch (self.unknown.tag) {
-                    .branch1 => self.branch1.cuckooPut(node),
-                    .branch2 => self.branch2.cuckooPut(node),
-                    .branch4 => self.branch4.cuckooPut(node),
-                    .branch8 => self.branch8.cuckooPut(node),
-                    .branch16 => self.branch16.cuckooPut(node),
-                    .branch32 => self.branch32.cuckooPut(node),
-                    .branch64 => self.branch64.cuckooPut(node),
-                    .none => @panic("Called `cuckooPut` on none."),
-                    else => @panic("Called `cuckooPut` on non-branch node."),
+                    .branch1 => self.branch1.reinsertBranch(node),
+                    .branch2 => self.branch2.reinsertBranch(node),
+                    .branch4 => self.branch4.reinsertBranch(node),
+                    .branch8 => self.branch8.reinsertBranch(node),
+                    .branch16 => self.branch16.reinsertBranch(node),
+                    .branch32 => self.branch32.reinsertBranch(node),
+                    .branch64 => self.branch64.reinsertBranch(node),
+                    .none => @panic("Called `reinsertBranch` on none."),
+                    else => @panic("Called `reinsertBranch` on non-branch node."),
                 };
             }
 
@@ -837,12 +837,9 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
             pub fn initBranch(branch_depth: u8, key: [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
                 const branch_node = try BranchNodeBase.init(branch_depth, key, allocator);
 
-                _ = branch_node.cuckooPut(left); // We know that these can't fail.
-                _ = branch_node.cuckooPut(right);
-
-                branch_node.body.node_hash = left.hash(key).combine(right.hash(key));
-                branch_node.body.leaf_count = left.count() + right.count();
-                branch_node.body.segment_count = left.segmentCount(branch_depth) + right.segmentCount(branch_depth);
+                // Note that these can't fail.
+                _ = branch_node.createBranch(left, branch_depth, key);
+                _ = branch_node.createBranch(right, branch_depth, key);
 
                 return @bitCast(Node, branch_node);
             }
@@ -961,30 +958,16 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                         return @bitCast(Node, self_or_copy);
                     } else {
                         const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
-                        const new_hash = self.body.node_hash.combine(new_child_node.hash(key));
-                        const new_leaf_count = self.body.leaf_count + 1;
-                        const new_segment_count = self.body.segment_count + 1;
 
                         var self_or_copy = if (single_owner) self else try self.copy(allocator);
 
-                        self_or_copy.body.node_hash = new_hash;
-                        self_or_copy.body.leaf_count = new_leaf_count;
-                        self_or_copy.body.segment_count = new_segment_count;
-
-                        var displaced = self_or_copy.cuckooPut(new_child_node);
-                        if (displaced) |_| {
-                            //var buff = self_or_copy.body.buffer;
-
-                            var grown = @bitCast(Node, self_or_copy);
-                            while (displaced) |entry| {
-                                grown = try grown.grow(allocator);
-                                displaced = grown.cuckooPut(entry);
-                            }
-                            //_ = buff;
-                            return grown;
+                        var displaced = self_or_copy.createBranch(new_child_node, branch_depth, key);
+                        var grown = @bitCast(Node, self_or_copy);
+                        while (displaced) |entry| {
+                            grown = try grown.grow(allocator);
+                            displaced = grown.reinsertBranch(entry);
                         }
-
-                        return @bitCast(Node, self_or_copy);
+                        return grown;
                     }
                 }
 
@@ -1044,7 +1027,15 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body });
             }
 
-            fn cuckooPut(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node.none
+            fn createBranch(self: Head, child: Node, at_depth: u8, prefix: [key_length]u8) ?Node {
+                self.body.node_hash = self.body.node_hash.combine(child.hash(prefix));
+                self.body.leaf_count += child.count();
+                self.body.segment_count += child.segmentCount(at_depth);
+
+                return self.reinsertBranch(child);
+            }
+
+            fn reinsertBranch(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node.none
                 if (self.body.bucket.putIntoEmpty(node)) {
                     return null; //TODO use none.
                 }
@@ -1141,7 +1132,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                         defer allocator.free(std.mem.asBytes(self.body));
                         var child_iterator = self.body.child_set;
                         while (child_iterator.drainNext(true)) |child_byte_key| {
-                            self.cuckooGet(@intCast(u8, child_byte_key)).rel(allocator);
+                            self.getBranch(@intCast(u8, child_byte_key)).rel(allocator);
                         }
                     }
                 }
@@ -1203,9 +1194,9 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     } else {
                         // The entire compressed infix above this node matched with the key.
                         const byte_key = key[branch_depth];
-                        if (self.cuckooHas(byte_key)) {
+                        if (self.hasBranch(byte_key)) {
                             // The node already has a child branch with the same byte byte_key as the one in the key.
-                            const old_child = self.cuckooGet(byte_key);
+                            const old_child = self.getBranch(byte_key);
                             const old_child_hash = old_child.hash(key);
                             const old_child_leaf_count = old_child.count();
                             const old_child_segment_count = old_child.segmentCount(branch_depth);
@@ -1227,31 +1218,20 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                             self_or_copy.body.leaf_count = new_leaf_count;
                             self_or_copy.body.segment_count = new_segment_count;
 
-                            self_or_copy.cuckooUpdate(new_child);
+                            self_or_copy.updateBranch(new_child);
                             return @bitCast(Node, self_or_copy);
                         } else {
                             const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
-                            const new_hash = self.body.node_hash.combine(new_child_node.hash(key));
-                            const new_leaf_count = self.body.leaf_count + 1;
-                            const new_segment_count = self.body.segment_count + 1;
 
                             var self_or_copy = if (single_owner) self else try self.copy(allocator);
 
-                            self_or_copy.body.node_hash = new_hash;
-                            self_or_copy.body.leaf_count = new_leaf_count;
-                            self_or_copy.body.segment_count = new_segment_count;
-
-                            var displaced = self_or_copy.cuckooPut(new_child_node);
-                            if (displaced) |_| {
-                                var grown = @bitCast(Node, self_or_copy);
-                                while (displaced) |entry| {
-                                    grown = try grown.grow(allocator);
-                                    displaced = grown.cuckooPut(entry);
-                                }
-                                return grown;
+                            var displaced = self_or_copy.createBranch(new_child_node, branch_depth, key);
+                            var grown = @bitCast(Node, self_or_copy);
+                            while (displaced) |entry| {
+                                grown = try grown.grow(allocator);
+                                displaced = grown.reinsertBranch(entry);
                             }
-
-                            return @bitCast(Node, self_or_copy);
+                            return grown;
                         }
                     }
 
@@ -1262,8 +1242,8 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
 
                 pub fn get(self: Head, at_depth: u8, byte_key: u8) Node {
                     if (at_depth == self.branch_depth) {
-                        if (self.cuckooHas(byte_key)) {
-                            return self.cuckooGet(byte_key);
+                        if (self.hasBranch(byte_key)) {
+                            return self.getBranch(byte_key);
                         } else {
                             return Node.none;
                         }
@@ -1287,10 +1267,10 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     var child_iterator = new_body.child_set;
                     while (child_iterator.drainNext(true)) |child_byte_key| {
                         const cast_child_byte_key = @intCast(u8, child_byte_key);
-                        const child = new_head.cuckooGet(cast_child_byte_key);
+                        const child = new_head.getBranch(cast_child_byte_key);
                         const potential_child_copy = try child.ref(allocator);
                         if (potential_child_copy) |new_child| {
-                            new_head.cuckooUpdate(new_child);
+                            new_head.updateBranch(new_child);
                         }
                     }
 
@@ -1310,7 +1290,15 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     }
                 }
 
-                fn cuckooPut(self: Head, node: Node) ?Node {
+                fn createBranch(self: Head, child: Node, at_depth: u8, prefix: [key_length]u8) ?Node {
+                    self.body.node_hash = self.body.node_hash.combine(child.hash(prefix));
+                    self.body.leaf_count += child.count();
+                    self.body.segment_count += child.segmentCount(at_depth);
+
+                    return self.reinsertBranch(child);
+                }
+
+                fn reinsertBranch(self: Head, node: Node) ?Node {
                     var byte_key = node.peek(self.branch_depth).?;
                     self.body.child_set.set(byte_key);
 
@@ -1347,18 +1335,18 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     unreachable;
                 }
 
-                fn cuckooHas(self: Head, byte_key: u8) bool {
+                fn hasBranch(self: Head, byte_key: u8) bool {
                     return self.body.child_set.isSet(byte_key);
                 }
 
-                // Contract: Key looked up must exist. Ensure with cuckooHas.
-                fn cuckooGet(self: Head, byte_key: u8) Node {
+                // Contract: Key looked up must exist. Ensure with hasBranch.
+                fn getBranch(self: Head, byte_key: u8) Node {
                     assert(self.body.child_set.isSet(byte_key));
                     const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
                     return self.body.buckets[bucket_index].get(self.branch_depth, byte_key);
                 }
 
-                fn cuckooUpdate(self: Head, node: Node) void {
+                fn updateBranch(self: Head, node: Node) void {
                     const byte_key = node.peek(self.branch_depth).?;
                     const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
                     _ = self.body.buckets[bucket_index].putIntoSame(self.branch_depth, node);
@@ -1372,7 +1360,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     var wasted_infix_bytes: usize = 0;
                     var child_iterator = self.body.child_set;
                     while (child_iterator.drainNext(true)) |child_byte_key| {
-                        const child = self.cuckooGet(@intCast(u8, child_byte_key));
+                        const child = self.getBranch(@intCast(u8, child_byte_key));
                         wasted_infix_bytes += (self.branch_depth - child.range());
                     }
 
@@ -2194,17 +2182,112 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                        _isIntersecting(self.child, other.child, 0, undefined);
             }
 
-        //     union(other) {
-        //     const thisNode = this.child;
-        //     const otherNode = other.child;
-        //     if (thisNode === null) {
-        //         return new PACTTree(otherNode);
-        //     }
-        //     if (otherNode === null) {
-        //         return new PACTTree(thisNode);
-        //     }
-        //     return new PACTTree(_union(thisNode, otherNode));
-        //     }
+            // fn _union(leftNode: Node, rightNode: Node, initial_depth: u8, prefix: [key_length]u8, allocator: std.mem.Allocator) {
+            //     if (leftNode.hash(prefix).equal(rightNode.hash(prefix))) return leftNode.ref(allocator) orelse leftNode;
+
+            //     const max_depth = std.math.min(leftNode.coveredDepth(), rightNode.coveredDepth());
+            //     var depth = initial_depth;
+            //     while (depth < max_depth):(depth += 1) {
+            //         const left_peek = leftNode.peek(depth);
+            //         const right_peek = rightNode.peek(depth);
+            //         if (left_peek != right_peek) break;
+            //         prefix[depth] = left_peek;
+            //     }
+            //     if (depth == key_length) return leftNode.ref(allocator) orelse leftNode;
+
+            //     //const union_childbits = ByteBitset.initEmpty(); // TODO use to allocate a better fitting branch node.
+            //     const left_childbits = ByteBitset.initFull();
+            //     const right_childbits = ByteBitset.initFull();
+            //     const intersect_childbits = ByteBitset.initEmpty();
+
+            //     leftNode.propose(depth, left_childbits);
+            //     rightNode.propose(depth, right_childbits);
+
+            //     //union_childbits.setUnion(left_childbits, right_childbits);
+            //     intersect_childbits.setIntersect(left_childbits, right_childbits);
+            //     left_childbits.setSubtract(left_childbits, intersect_childbits);
+            //     right_childbits.setSubtract(right_childbits, intersect_childbits);
+
+            //     var branch_node = @bitCast(Node, try BranchNodeBase.init(branch_depth, key, allocator));
+
+            //     var hash = Hash{};
+            //     var count = 0;
+            //     var segment_count = 0;
+
+            //     while (left_childbits.drainNext(true)) | index | {
+            //         prefix[depth] = index;
+
+            //         const child = leftNode.get(depth, index);
+
+            //         var displaced = branch_node.createBranch(child.ref(allocator) orelse child, depth, prefix);
+            //         while (displaced) |entry| {
+            //             branch_node = try branch_node.grow(allocator);
+            //             displaced = branch_node.reinsertBranch(entry);
+            //         }
+            //     }
+
+            //     while (right_childbits.drainNext(true)) | index | {
+            //         prefix[depth] = index;
+
+            //         const child = rightNode.get(depth, index);
+
+            //         var displaced = branch_node.createBranch(child);
+            //         while (displaced) |entry| {
+            //             branch_node = try branch_node.grow(allocator);
+            //             displaced = branch_node.reinsertBranch(entry);
+            //         }
+            //     }
+
+            //     while (right_childbits.drainNext(true)) | index | {
+            //         prefix[depth] = index;
+
+            //         const child = rightNode.get(depth, index);
+
+            //         var displaced = branch_node.createBranch(child.ref(allocator) orelse child, depth, prefix);
+            //         while (displaced) |entry| {
+            //             branch_node = try branch_node.grow(allocator);
+            //             displaced = branch_node.reinsertBranch(entry);
+            //         }
+            //     }
+
+            //     while (right_childbits.drainNext(true)) | index | {
+            //         prefix[depth] = index;
+
+            //         const left_child = leftNode.get(depth, index);
+            //         const right_child = rightNode.get(depth, index);
+
+            //         const child = _union(left_child, right_child, depth + 1, prefix);
+
+            //         var displaced = branch_node.createBranch(child, depth, prefix);
+            //         while (displaced) |entry| {
+            //             branch_node = try branch_node.grow(allocator);
+            //             displaced = branch_node.reinsertBranch(entry);
+            //         }
+            //     }
+
+            //     return new PACTNode(
+            //         key.slice(),
+            //         depth,
+            //         union_childbits,
+            //         children,
+            //         hash,
+            //         count,
+            //         segmentCount,
+            //         {}
+            //     );
+            // }
+
+            // pub fn union(self: *const Tree, other: *const Tree, allocator: std.mem.Allocator) allocError!Tree {
+            //     const self_node = self.child;
+            //     const other_node = other.child;
+            //     if (self_node.isNone()) {
+            //         return Tree{ .child = (try other.child.ref(allocator)) orelse other.child,  .allocator = allocator };
+            //     }
+            //     if (other_node.isNone()) {
+            //         return Tree{ .child = (try self.child.ref(allocator)) orelse self.child,  .allocator = allocator };
+            //     }
+            //     return Tree{ .child = _union(self_node, other_node, 0, undefined, .allocator = allocator };
+            // }
 
         //     subtract(other) {
         //     const thisNode = this.child;
