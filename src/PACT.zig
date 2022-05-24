@@ -583,6 +583,29 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 };
             }
 
+            pub fn coveredDepth(self: Node) u8 {
+                return switch (self.unknown.tag) {
+                    .none => @panic("Called `depth` on none."),
+                    .branch1 => self.branch1.branch_depth,
+                    .branch2 => self.branch2.branch_depth,
+                    .branch4 => self.branch4.branch_depth,
+                    .branch8 => self.branch8.branch_depth,
+                    .branch16 => self.branch16.branch_depth,
+                    .branch32 => self.branch32.branch_depth,
+                    .branch64 => self.branch64.branch_depth,
+                    .infix8 => self.infix8.child.depth(),
+                    .infix16 => self.infix16.child.depth(),
+                    .infix24 => self.infix24.child.depth(),
+                    .infix32 => self.infix32.child.depth(),
+                    .infix40 => self.infix40.child.depth(),
+                    .infix48 => self.infix48.child.depth(),
+                    .infix56 => self.infix56.child.depth(),
+                    .infix64 => self.infix64.child.depth(),
+                    .leaf => key_length,
+                    .twig => key_length,
+                };
+            }
+
             pub fn mem_info(self: Node) MemInfo {
                 return switch (self.unknown.tag) {
                     .none => self.branch1.mem_info(),
@@ -2091,80 +2114,117 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 return total;
             }
 
-            // isSubsetOf(other) {
-            //   return (
-            //     this.keyLength === other.keyLength &&
-            //     (!this.child || (!!other.child && _isSubsetOf(this.child, other.child)))
-            //   );
-            // }
+            fn _isSubsetOf(leftNode: Node, rightNode: Node, initial_depth: u8, prefix: [key_length]u8) bool {
+                if (leftNode.hash(prefix).equal(rightNode.hash(prefix))) return true;
 
-            // isIntersecting(other) {
-            //   return (
-            //     this.keyLength === other.keyLength &&
-            //     !!this.child &&
-            //     !!other.child &&
-            //     (this.child === other.child ||
-            //       hash_equal(this.child.hash, other.child.hash) ||
-            //       _isIntersecting(this.child, other.child))
-            //   );
-            // }
+                const max_depth = std.math.min(leftNode.coveredDepth(), rightNode.coveredDepth());
+                var depth = initial_depth;
+                while (depth < max_depth):(depth += 1) {
+                    const left_peek = leftNode.peek(depth);
+                    const right_peek = rightNode.peek(depth);
+                    if (left_peek != right_peek) break;
+                    prefix[depth] = left_peek;
+                }
+                if (depth == key_length) return true;
 
-            // union(other) {
-            //   const thisNode = this.child;
-            //   const otherNode = other.child;
-            //   if (thisNode === null) {
-            //     return new PACTTree(otherNode);
-            //   }
-            //   if (otherNode === null) {
-            //     return new PACTTree(thisNode);
-            //   }
-            //   return new PACTTree(_union(thisNode, otherNode));
-            // }
+                const left_childbits = ByteBitset.initFull();
+                const right_childbits = ByteBitset.initFull();
+                const intersect_childbits = ByteBitset.initEmpty();
 
-            // subtract(other) {
-            //   const thisNode = this.child;
-            //   const otherNode = other.child;
-            //   if (otherNode === null) {
-            //     return new PACTTree(thisNode);
-            //   }
-            //   if (
-            //     this.child === null ||
-            //     hash_equal(this.child.hash, other.child.hash)
-            //   ) {
-            //     return new PACTTree();
-            //   } else {
-            //     return new PACTTree(_subtract(thisNode, otherNode));
-            //   }
-            // }
+                leftNode.propose(depth, &left_childbits);
+                rightNode.propose(depth, &right_childbits);
 
-            // intersect(other) {
-            //   const thisNode = this.child;
-            //   const otherNode = other.child;
+                intersect_childbits.setIntersect(left_childbits, right_childbits);
+                // The left _only_ child bits.
+                left_childbits.setSubtract(left_childbits, intersect_childbits);
 
-            //   if (thisNode === null || otherNode === null) {
-            //     return new PACTTree(null);
-            //   }
-            //   if (thisNode === otherNode || hash_equal(thisNode.hash, otherNode.hash)) {
-            //     return new PACTTree(otherNode);
-            //   }
-            //   return new PACTTree(_intersect(thisNode, otherNode));
-            // }
+                // The existence of children that only exist in the left node,
+                // is a witness that prooves that there is no subset relationship.
+                if (!left_childbits.isEmpty()) return false;
 
-            // difference(other) {
-            //   const thisNode = this.child;
-            //   const otherNode = other.child;
+                while (intersect_childbits.drainNext(true)) | index | {
+                    const left_child = leftNode.get(depth, index);
+                    const right_child = rightNode.get(depth, index);
+                    prefix[depth] = index;
+                    if (!_isSubsetOf(left_child, right_child, depth + 1, prefix)) {
+                        return false;
+                    }
+                }
 
-            //   if (thisNode === null) {
-            //     return new PACTTree(otherNode);
-            //   }
-            //   if (otherNode === null) {
-            //     return new PACTTree(thisNode);
-            //   }
-            //   if (thisNode === otherNode || hash_equal(thisNode.hash, otherNode.hash)) {
-            //     return new PACTTree(null);
-            //   }
-            //   return new PACTTree(_difference(thisNode, otherNode));
-            // }
+                return true;
+            }
+
+            pub fn isSubsetOf(self: *const Tree, other: *const Tree ) bool {
+                return self.child.isNone() or (!other.child.isNone() and _isSubsetOf(self.child, other.child, 0, undefined));
+            }
+
+        //     isIntersecting(other) {
+        //     return (
+        //         this.keyLength === other.keyLength &&
+        //         !!this.child &&
+        //         !!other.child &&
+        //         (this.child === other.child ||
+        //         hash_equal(this.child.hash, other.child.hash) ||
+        //         _isIntersecting(this.child, other.child))
+        //     );
+        //     }
+
+        //     union(other) {
+        //     const thisNode = this.child;
+        //     const otherNode = other.child;
+        //     if (thisNode === null) {
+        //         return new PACTTree(otherNode);
+        //     }
+        //     if (otherNode === null) {
+        //         return new PACTTree(thisNode);
+        //     }
+        //     return new PACTTree(_union(thisNode, otherNode));
+        //     }
+
+        //     subtract(other) {
+        //     const thisNode = this.child;
+        //     const otherNode = other.child;
+        //     if (otherNode === null) {
+        //         return new PACTTree(thisNode);
+        //     }
+        //     if (
+        //         this.child === null ||
+        //         hash_equal(this.child.hash, other.child.hash)
+        //     ) {
+        //         return new PACTTree();
+        //     } else {
+        //         return new PACTTree(_subtract(thisNode, otherNode));
+        //     }
+        //     }
+
+        //     intersect(other) {
+        //     const thisNode = this.child;
+        //     const otherNode = other.child;
+
+        //     if (thisNode === null || otherNode === null) {
+        //         return new PACTTree(null);
+        //     }
+        //     if (thisNode === otherNode || hash_equal(thisNode.hash, otherNode.hash)) {
+        //         return new PACTTree(otherNode);
+        //     }
+        //     return new PACTTree(_intersect(thisNode, otherNode));
+        //     }
+
+        //     difference(other) {
+        //     const thisNode = this.child;
+        //     const otherNode = other.child;
+
+        //     if (thisNode === null) {
+        //         return new PACTTree(otherNode);
+        //     }
+        //     if (otherNode === null) {
+        //         return new PACTTree(thisNode);
+        //     }
+        //     if (thisNode === otherNode || hash_equal(thisNode.hash, otherNode.hash)) {
+        //         return new PACTTree(null);
+        //     }
+        //     return new PACTTree(_difference(thisNode, otherNode));
+        //     }
         };
 
         test "Alignment & Size" {
