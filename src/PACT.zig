@@ -502,7 +502,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
 
             pub fn get(self: Node, at_depth: u8, byte_key: u8) Node {
                 return switch (self.unknown.tag) {
-                    .none => @panic("Called `get` on none."),
+                    .none => self,
                     .branch1 => self.branch1.get(at_depth, byte_key),
                     .branch2 => self.branch2.get(at_depth, byte_key),
                     .branch4 => self.branch4.get(at_depth, byte_key),
@@ -571,6 +571,15 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     .branch64 => self.branch64.grow(allocator),
                     .none => @panic("Called `grow` on none."),
                     else => @panic("Called `grow` on non-branch node."),
+                };
+            }
+
+            pub fn getValue(self: Node) ?T {
+                return switch (self.unknown.tag) {
+                    .none => null,
+                    .twig => null,
+                    .leaf => self.leaf.value,
+                    else => @panic("Called `value` on non-terminal node."),
                 };
             }
 
@@ -2051,20 +2060,17 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     self.child = try self.child.put(0, key, value, true, self.allocator);
                 }
             }
-            // get(key) {
-            //   let node = this.child;
-            //   if (node === null) return undefined;
-            //   for (let depth = 0; depth < KEY_LENGTH; depth++) {
-            //     const sought = key[depth];
-            //     node = node.get(depth, sought);
-            //     if (node === null) return undefined;
-            //   }
-            //   return node.value;
-            // }
-
-            // cursor() {
-            //   return new PACTCursor(this);
-            // }
+            
+            pub fn get(self: *Tree, key: [key_length]u8) ?T {
+              var node = self.child;
+              var depth: u8 = 0; 
+              while (!node.isNone()) {
+                node = node.get(depth, key[depth]);
+                if(depth == (key_length - 1)) return node.getValue();
+                depth += 1;
+              }
+              return null;
+            }
 
             pub fn isEmpty(self: *Tree) bool {
                 return self.child.isNone();
