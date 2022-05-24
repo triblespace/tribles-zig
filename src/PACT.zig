@@ -169,8 +169,7 @@ const NodeTag = enum(u8) {
     twig,
 };
 
-pub fn PACT(comptime segments: []const u8, comptime value_len: u8, T: type) type {
-    _ = value_len;
+pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) type {
 
     return struct {
         pub const key_length = blk: {
@@ -457,7 +456,7 @@ pub fn PACT(comptime segments: []const u8, comptime value_len: u8, T: type) type
 
             pub fn peek(self: Node, at_depth: u8) ?u8 {
                 return switch (self.unknown.tag) {
-                    .none => @panic("Called `peek` on none."),
+                    .none => null,
                     .branch1 => self.branch1.peek(at_depth),
                     .branch2 => self.branch2.peek(at_depth),
                     .branch4 => self.branch4.peek(at_depth),
@@ -480,7 +479,7 @@ pub fn PACT(comptime segments: []const u8, comptime value_len: u8, T: type) type
 
             pub fn propose(self: Node, at_depth: u8, result_set: *ByteBitset) void {
                 return switch (self.unknown.tag) {
-                    .none => @panic("Called `propose` on none."),
+                    .none => result_set.unsetAll(),
                     .branch1 => self.branch1.propose(at_depth, result_set),
                     .branch2 => self.branch2.propose(at_depth, result_set),
                     .branch4 => self.branch4.propose(at_depth, result_set),
@@ -1437,7 +1436,7 @@ pub fn PACT(comptime segments: []const u8, comptime value_len: u8, T: type) type
                     _ = self;
                     _ = fmt;
                     _ = options;
-                    try writer.print("{*} ◁{d}:\n", .{ self.body, self.body.ref_count });
+                    try writer.print("{*} �{d}:\n", .{ self.body, self.body.ref_count });
                     try writer.print("  infixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{ head_infix_len, body_infix_len, std.fmt.fmtSliceHexUpper(&self.infix), std.fmt.fmtSliceHexUpper(&self.body.infix) });
                 }
 
@@ -1928,6 +1927,91 @@ pub fn PACT(comptime segments: []const u8, comptime value_len: u8, T: type) type
                 return iterator;
             }
 
+            pub const Cursor = struct {
+                depth: u8 = 0,
+                path: [key_length]Node = [_]Node{Node.none} ** key_length,
+                key: [key_length]u8 = [_]u8{0} ** key_length,
+
+                pub const gaps = blk: {
+                    var g = ByteBitset.initEmpty();
+
+                    var depth = 0;
+                    for (segments) | s | {
+                        const pad = segment_size - s;
+
+                        depth += pad;
+
+                        var j = pad;
+                        while (j < segment_size):(j += 1) {
+                            g.set(depth);
+                            depth += 1;
+                        }
+                    }
+
+                    break :blk g;
+                };
+
+                // Maps push_depth -> path_depth.
+                pub const depth_mapping = blk: {
+                    var mapping: [256]u8 = [_]u8{0} ** 256;
+                    var depth: u16 = 0;
+                    var path_depth: u8 = 0;
+                    while (depth < 256) {
+                        mapping[depth] = path_depth;
+                        if(gaps.isSet(depth)) path_depth += 1;
+                        depth += 1;
+                    }
+                    break :blk mapping;
+                };
+
+                pub fn init(tree: Tree) @This() {
+                    const self = @This(){};
+                    self.path[0] = tree.child;
+                }
+
+                pub fn peek(self: *Cursor) ?u8 {
+                    if (gaps.isUnset(self.depth)) return 0;
+                    
+                    const path_depth = depth_mapping[self.depth];
+                    return self.nodePath[path_depth].peek(path_depth);
+                }
+
+                pub fn propose(self: *Cursor, bitset: *ByteBitset) void {
+                    if (gaps.isUnset(self.depth)) {
+                        bitset.singleBitIntersect(0);
+                    } else {
+                        const path_depth = depth_mapping[self.depth];
+                        self.path[path_depth].propose(path_depth, bitset);
+                    }
+                }
+
+                pub fn pop(self: *Cursor, times: u8) void {
+                    self.depth -= times;
+                }
+
+                pub fn push(self: *Cursor, byte: u8) void {
+                    if (gaps.isUnset(self.depth)) {
+                        const path_depth = depth_mapping[self.depth];
+                        self.path[path_depth + 1] = self.nodePath[path_depth].get(path_depth, byte);
+                    }
+                    self.depth += 1;
+                }
+
+                pub fn node(self: *Cursor) Node {
+                    const path_depth = depth_mapping[self.depth];
+                    return self.path[path_depth];
+                }
+
+                pub fn segmentCount(self: *Cursor) u32 {
+                    const path_depth = depth_mapping[self.depth];
+                    return self.path[path_depth].segmentCount(path_depth);
+                }
+            };
+
+            pub fn cursor(self: *const Tree) Cursor {
+                return Cursor.init(self);
+            }
+
             pub fn init(allocator: std.mem.Allocator) Tree {
                 return Tree{ .allocator = allocator };
             }
@@ -1951,9 +2035,9 @@ pub fn PACT(comptime segments: []const u8, comptime value_len: u8, T: type) type
 
                 _ = self;
 
-                const card = cards.treeCard(self);
-                try writer.print("{s}\n", .{card});
-                try writer.writeAll("");
+                //const card = cards.treeCard(self);
+                //try writer.print("{s}\n", .{card});
+                try writer.writeAll("Tree");
             }
 
             pub fn count(self: *const Tree) u64 {

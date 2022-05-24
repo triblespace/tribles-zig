@@ -8,6 +8,7 @@ const Trible = @import("Trible.zig").Trible;
 const pact = @import("./PACT.zig");
 const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
+const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 
 const sample_size: usize = 1;
 const data_size: usize = 1000000;
@@ -19,7 +20,7 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_tribleset_write();
+        try benchmark_pact_write();
     }
     //try benchmark_hashing();
     //try benchmark_std();
