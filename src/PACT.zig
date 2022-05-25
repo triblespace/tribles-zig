@@ -812,10 +812,10 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
             const BODY_ALIGNMENT = 64;
 
             const Body = extern struct {
-                leaf_count: u64,
+                leaf_count: u64 = 0,
                 ref_count: u16 = 1,
                 padding: [2]u8 = undefined,
-                segment_count: u32 = 1,
+                segment_count: u32 = 0,
                 node_hash: Hash = Hash{},
                 segment_minhash: MinHash = MinHash{},
                 bucket: Bucket = Bucket{},
@@ -838,7 +838,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
             pub fn init(branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
                 const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
-                new_body.* = Body{ .ref_count = 1, .leaf_count = 1 };
+                new_body.* = Body{};
 
                 var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
 
@@ -1090,10 +1090,10 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 const BODY_ALIGNMENT = 64;
 
                 const Body = extern struct {
-                    leaf_count: u64,
+                    leaf_count: u64 = 0,
                     ref_count: u16 = 1,
                     padding: [2]u8 = undefined,
-                    segment_count: u32 = 1,
+                    segment_count: u32 = 0,
                     node_hash: Hash = Hash{},
                     segment_minhash: MinHash = MinHash{},
                     child_set: ByteBitset = ByteBitset.initEmpty(),
@@ -1120,7 +1120,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 pub fn init(branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
                     const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
-                    new_body.* = Body{ .ref_count = 1, .leaf_count = 1 };
+                    new_body.* = Body{};
 
                     var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
 
