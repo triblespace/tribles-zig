@@ -109,7 +109,7 @@ pub fn benchmark_pact_write() !void {
 
 }
 
-const union_tree_count = 2;
+const union_tree_count = 10;
 
 pub fn benchmark_pact_union() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
@@ -138,13 +138,13 @@ pub fn benchmark_pact_union() !void {
         }
     }
 
-    timer.reset();
-
     defer {
         for( trees ) |*tree| {
             tree.deinit();
         }
     }
+
+    timer.reset();
 
     const union_tree = try PACT.Tree.unionAll(union_tree_count, trees[0..], arena.allocator());
 
