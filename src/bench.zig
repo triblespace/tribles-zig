@@ -98,7 +98,7 @@ pub fn benchmark_pact_write() !void {
     }
     coz.end("insert");
 
-    std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
+    std.debug.print("Inserted {d} with {d} unique in {d}ns\n", .{ i, tree.count(), t_total });
 
     std.debug.print("{s}\n", .{tree});
 
@@ -107,6 +107,54 @@ pub fn benchmark_pact_write() !void {
     //     std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
     // }
 
+}
+
+const union_tree_count = 2;
+
+pub fn benchmark_pact_union() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer _ = arena.deinit();
+    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
+    //defer _ = gp.deinit();
+
+    var timer = try time.Timer.start();
+    var t_total: u64 = 0;
+
+    var rnd = std.rand.DefaultPrng.init(0).random();
+
+    //var base_tree = PACT.Tree.init(arena.allocator());
+    //var tree = PACT.Tree.init(gp.allocator());
+    //defer base_tree.deinit();
+
+    var trees: [union_tree_count]PACT.Tree = undefined;
+    for( trees ) |*tree| {
+        tree.* = PACT.Tree.init(arena.allocator());
+
+        var i: u64 = 0;
+        var t = Trible.initAribitrary(rnd);
+        while (i < data_size) : (i += 1) {
+            t = Trible.initAribitraryLike(rnd, change_prob, t);
+            try tree.put(t.data, null);
+        }
+    }
+
+    timer.reset();
+
+    defer {
+        for( trees ) |*tree| {
+            tree.deinit();
+        }
+    }
+
+    const union_tree = try PACT.Tree.unionAll(union_tree_count, trees[0..], arena.allocator());
+
+    t_total += timer.lap();
+
+    for( trees ) |tree| {
+        std.debug.print("Tree with {d}\n", .{ tree.count() });
+    }
+
+    std.debug.print("Union {d} in {d}ns\n", .{ union_tree.count(), t_total });
 }
 
 pub fn benchmark_pact_iterate() !void {
