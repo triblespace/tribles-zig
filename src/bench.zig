@@ -20,7 +20,7 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_pact_write();
+        try benchmark_pact_union();
     }
     //try benchmark_hashing();
     //try benchmark_std();

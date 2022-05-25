@@ -2203,7 +2203,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 const first_node_hash = first_node.hash(prefix.*);
                 
                 for(other_nodes) |other_node| {
-                    if (first_node_hash.equal(other_node.hash(prefix.*))) break;
+                    if (!first_node_hash.equal(other_node.hash(prefix.*))) break;
                 } else {
                     return (try first_node.ref(allocator)) orelse first_node;
                 }
@@ -2252,7 +2252,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
 
                     const union_node = try recursiveUnion(initial_node_count, children[0..children_len], depth + 1, prefix, allocator);
                     const new_child_node = try WrapInfixNode(depth, prefix.*, union_node, allocator);
-                    
+
                     var displaced = branch_node.createBranch(new_child_node, depth, prefix.*);
                     while (displaced) |entry| {
                         branch_node = try branch_node.grow(allocator);
