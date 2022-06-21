@@ -599,7 +599,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
 
             pub fn coveredDepth(self: Node) u8 {
                 return switch (self.unknown.tag) {
-                    .none => @panic("Called `depth` on none."),
+                    .none => 0,
                     .branch1 => self.branch1.branch_depth,
                     .branch2 => self.branch2.branch_depth,
                     .branch4 => self.branch4.branch_depth,
@@ -2263,7 +2263,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 return branch_node;
             }
 
-            pub fn unionAll(comptime tree_count: u8, trees: []Tree, allocator: std.mem.Allocator) allocError!Tree {
+            pub fn initUnion(comptime tree_count: u8, trees: []Tree, allocator: std.mem.Allocator) allocError!Tree {
                 var children: [tree_count]Node = undefined;
                 var children_len: u8 = 0;
                 for (trees) |tree| {
@@ -2280,6 +2280,137 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 var prefix: [key_length]u8 = undefined;
 
                 return Tree{ .child = try recursiveUnion(tree_count, children[0..children_len], 0, &prefix, allocator), .allocator = allocator };
+            }
+
+            fn recursiveIntersection(comptime initial_node_count: u8, nodes: []Node, initial_depth: u8, prefix: *[key_length]u8, allocator: std.mem.Allocator) allocError!Node {
+                const first_node = nodes[0];
+                const other_nodes = nodes[1..];
+
+                const first_node_hash = first_node.hash(prefix.*);
+                
+                for(other_nodes) |other_node| {
+                    if (!first_node_hash.equal(other_node.hash(prefix.*))) break;
+                } else {
+                    return (try first_node.ref(allocator)) orelse first_node;
+                }
+
+                var max_depth = first_node.coveredDepth();
+                for (other_nodes) |other_node| {
+                    max_depth = std.math.min(max_depth, other_node.coveredDepth());
+                }
+
+                var depth = initial_depth;
+                outer: while (depth < max_depth):(depth += 1) {
+                    const first_peek = first_node.peek(depth).?;
+                    for (other_nodes) |other_node| {
+                        const other_peek = other_node.peek(depth).?;
+                        if (first_peek != other_peek) break :outer;
+                    }
+                    prefix[depth] = first_peek;
+                }
+
+                if (depth == key_length) return (try first_node.ref(allocator)) orelse first_node;
+
+                var intersection_childbits = ByteBitset.initFull(); // TODO use to allocate a better fitting branch node.
+
+                for (nodes) |node| {
+                    node.propose(depth, &intersection_childbits);
+                }
+
+                var intersection_count = 0;
+                var branch_node:Node = undefined;
+                var buffered_child: Node = undefined;
+
+                var children: [initial_node_count]Node = undefined;
+                while (intersection_childbits.drainNext(true)) | index | {
+                    prefix[depth] = index;
+
+                    for (nodes) |node, i| {
+                        const child = node.get(depth, index);
+                        children[i] = child;
+                    }
+
+                    const intersection_node = try recursiveIntersection(initial_node_count, children[0..], depth + 1, prefix, allocator);
+                    
+                    if(!intersection_node.isNone()) {
+                        const new_child_node = try WrapInfixNode(depth, prefix.*, intersection_node, allocator);
+                        switch(intersection_count) {
+                            0 => {
+                                buffered_child = new_child_node;                            
+                            },
+                            1 => {
+                                branch_node = @bitCast(Node, try BranchNodeBase.init(depth, prefix.*, allocator))
+                                var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+                                while (displaced) |entry| {
+                                    branch_node = try branch_node.grow(allocator);
+                                    displaced = branch_node.reinsertBranch(entry);
+                                }
+                                buffered_child = new_child_node;
+                            },
+                            else => {
+                                var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+                                while (displaced) |entry| {
+                                    branch_node = try branch_node.grow(allocator);
+                                    displaced = branch_node.reinsertBranch(entry);
+                                }
+                                buffered_child = new_child_node;
+                            }
+                        }
+                        intersection_count += 1;
+                    }
+                }
+
+                switch(intersection_count) {
+                    0 => {
+                        buffered_child = new_child_node;                            
+                    },
+                    1 => {
+                        branch_node = @bitCast(Node, try BranchNodeBase.init(depth, prefix.*, allocator))
+                        var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+                        while (displaced) |entry| {
+                            branch_node = try branch_node.grow(allocator);
+                            displaced = branch_node.reinsertBranch(entry);
+                        }
+                    },
+                    else => {
+                        var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+                        while (displaced) |entry| {
+                            branch_node = try branch_node.grow(allocator);
+                            displaced = branch_node.reinsertBranch(entry);
+                        }
+                    }
+                }
+                if(intersection_count == 0) {
+                    branch_node.rel(allocator);
+                    return Node.none;
+                }
+
+                if(intersection_count == 1) {
+                    const index = intersection_childbits.findFirstSet().?;
+                    prefix[depth] = index;
+
+                    for (nodes) |node, i| {
+                        const child = node.get(depth, index);
+                        children[i] = child;
+                    }
+
+                    const intersection_node = try recursiveIntersection(initial_node_count, children[0..], depth + 1, prefix, allocator);
+                    return try WrapInfixNode(depth, prefix.*, intersection_node, allocator);
+                }
+
+
+                return branch_node;
+            }
+
+            pub fn initIntersection(comptime tree_count: u8, trees: []Tree, allocator: std.mem.Allocator) allocError!Tree {
+                var children: [tree_count]Node = undefined;
+                for (trees) |tree, i| {
+                    children[i] = tree.child;
+                }
+
+                var prefix: [key_length]u8 = undefined;
+
+                return Tree{ .child = try recursiveUnion(tree_count, children[0..], 0, &prefix, allocator), .allocator = allocator };
             }
 
         //     subtract(other) {

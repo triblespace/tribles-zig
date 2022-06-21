@@ -20,7 +20,7 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_pact_union();
+        try benchmark_pact_intersection();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -146,7 +146,7 @@ pub fn benchmark_pact_union() !void {
 
     timer.reset();
 
-    const union_tree = try PACT.Tree.unionAll(union_tree_count, trees[0..], arena.allocator());
+    const union_tree = try PACT.Tree.initUnion(union_tree_count, trees[0..], arena.allocator());
 
     t_total += timer.lap();
 
@@ -155,6 +155,54 @@ pub fn benchmark_pact_union() !void {
     }
 
     std.debug.print("Union {d} in {d}ns\n", .{ union_tree.count(), t_total });
+}
+
+const intersection_tree_count = 10;
+
+pub fn benchmark_pact_intersection() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer _ = arena.deinit();
+    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
+    //defer _ = gp.deinit();
+
+    var timer = try time.Timer.start();
+    var t_total: u64 = 0;
+
+    var rnd = std.rand.DefaultPrng.init(0).random();
+
+    //var base_tree = PACT.Tree.init(arena.allocator());
+    //var tree = PACT.Tree.init(gp.allocator());
+    //defer base_tree.deinit();
+
+    var trees: [union_tree_count]PACT.Tree = undefined;
+    for( trees ) |*tree| {
+        tree.* = PACT.Tree.init(arena.allocator());
+
+        var i: u64 = 0;
+        var t = Trible.initAribitrary(rnd);
+        while (i < data_size) : (i += 1) {
+            t = Trible.initAribitraryLike(rnd, change_prob, t);
+            try tree.put(t.data, null);
+        }
+    }
+
+    defer {
+        for( trees ) |*tree| {
+            tree.deinit();
+        }
+    }
+
+    timer.reset();
+
+    const intersection_tree = try PACT.Tree.initIntersection(intersection_tree_count, trees[0..], arena.allocator());
+
+    t_total += timer.lap();
+
+    for( trees ) |tree| {
+        std.debug.print("Tree with {d}\n", .{ tree.count() });
+    }
+
+    std.debug.print("Intersection {d} in {d}ns\n", .{ intersection_tree.count(), t_total });
 }
 
 pub fn benchmark_pact_iterate() !void {
