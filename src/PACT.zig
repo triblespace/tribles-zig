@@ -1962,7 +1962,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return iterator;
             }
 
-            const fn CursorIterator(max_depth: u8) type {
+            fn CursorIterator(max_depth: u8) type {
                 return struct {
                     branch_points: ByteBitset = ByteBitset.initEmpty(),
                     key: [max_depth]u8 = [_]u8{0} ** max_depth,
@@ -1973,15 +1973,15 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                     const ExplorationMode = enum { path, branch, backtrack };
 
-                    pub fn init(self: *const Cursor) CursorIterator {
-                        var iterator = CursorIterator{.cursor = Cursor};
-                        iterator.branch_points.set(0):
+                    pub fn init(iterated_cursor: Cursor) @This() {
+                        var iterator = @This(){.cursor = iterated_cursor};
+                        iterator.branch_points.set(0);
                         return iterator;
                     }
 
-                    pub fn next(self: *CursorIterator) ?[max_depth]u8 {
+                    pub fn next(self: *@This()) ?[max_depth]u8 {
                         outer: while (true) {
-                            switch (mode) {
+                            switch (self.mode) {
                                 .path => {
                                     while (self.depth < max_depth) {
                                         if (self.cursor.peek()) |key_fragment| {
@@ -1990,18 +1990,18 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                                             self.depth += 1;
                                         } else {
                                             self.branch_state[self.depth].setAll();
-                                            self.cursor.propose(branch_state[self.depth]);
+                                            self.cursor.propose(&self.branch_state[self.depth]);
                                             self.branch_points.set(self.depth);
                                             self.mode = .branch;
                                             continue :outer;
                                         }
                                     } else {
-                                        self.mode = .backtrack
+                                        self.mode = .backtrack;
                                         return self.key;
                                     }
                                 },
                                 .branch => {
-                                    if(self.branch_state[self.depth].drainNextAscending())) |key_fragment| {
+                                    if(self.branch_state[self.depth].drainNextAscending()) |key_fragment| {
                                         self.key[self.depth] = key_fragment;
                                         self.cursor.push(key_fragment);
                                         self.depth += 1;
@@ -2031,7 +2031,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             pub fn PaddedCursor(comptime segment_size: u8) type {
                 return struct {
                     depth: u8 = 0,
-                    cursor: Cursor;
+                    cursor: Cursor,
+
+                    const padded_size = segments.len * segment_size;
 
                     pub const padding = blk: {
                         var g = ByteBitset.initFull();
@@ -2052,8 +2054,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         break :blk g;
                     };
 
-                    pub fn init(cursor: Cursor) @This() {
-                        return @This(){.cursor = cursor};
+                    pub fn init(cursor_to_pad: Cursor) @This() {
+                        return @This(){.cursor = cursor_to_pad};
                     }
 
                     // Interface API >>>
@@ -2078,9 +2080,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         }
                     }
 
-                    pub fn push(self: *Cursor, byte: u8) void {
+                    pub fn push(self: *Cursor, key_fragment: u8) void {
                         if (padding.isUnset(self.depth)) {
-                            self.cursor.push();
+                            self.cursor.push(key_fragment);
                         }
                         self.depth += 1;
                     }
@@ -2091,18 +2093,18 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                     // <<< Interface API
 
-                    pub fn iterate(self: *Cursor) CursorIterator {
-                        return CursorIterator(segments.len * segment_size).init(self);
+                    pub fn iterate(self: *Cursor) CursorIterator(padded_size) {
+                        return CursorIterator(padded_size).init(self);
                     }
                 };
             }
 
             pub const Cursor = struct {
                 depth: u8 = 0,
-                path: [key_length]Node = [_]Node{Node.none} ** key_length,
+                path: [key_length + 1]Node = [_]Node{Node.none} ** (key_length + 1),
 
-                pub fn init(tree: Tree) @This() {
-                    const self = @This(){};
+                pub fn init(tree: *const Tree) @This() {
+                    var self = @This(){};
                     self.path[0] = tree.child;
                     return self;
                 }
@@ -2110,7 +2112,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // Interface API >>>
 
                 pub fn peek(self: *Cursor) ?u8 {
-                    return self.nodePath[self.depth].peek(self.depth);
+                    return self.path[self.depth].peek(self.depth);
                 }
 
                 pub fn propose(self: *Cursor, bitset: *ByteBitset) void {
@@ -2122,7 +2124,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn push(self: *Cursor, byte: u8) void {
-                    self.path[self.depth + 1] = self.nodePath[self.depth].get(self.depth, byte);
+                    self.path[self.depth + 1] = self.path[self.depth].get(self.depth, byte);
                     self.depth += 1;
                 }
 
@@ -2136,7 +2138,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     return self.path[self.depth];
                 }
 
-                pub fn iterate(self: *Cursor) CursorIterator {
+                pub fn iterate(self: Cursor) CursorIterator(key_length) {
                     return CursorIterator(key_length).init(self);
                 }
             };
@@ -2207,7 +2209,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             pub fn mem_info(self: *const Tree) MemInfo {
                 var total = MemInfo{ .active_memory = @sizeOf(Tree), .wasted_memory = 0, .passive_memory = 0, .allocation_count = 0 };
 
-                var node_iter = self.nodes();
+                var node_iter = self._nodes();
                 while (node_iter.next()) |res| {
                     total = total.combine(res.node.mem_info());
                 }
@@ -2381,136 +2383,136 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return Tree{ .child = try recursiveUnion(tree_count, children[0..children_len], 0, &prefix, allocator), .allocator = allocator };
             }
 
-            fn recursiveIntersection(comptime initial_node_count: u8, nodes: []Node, initial_depth: u8, prefix: *[key_length]u8, allocator: std.mem.Allocator) allocError!Node {
-                const first_node = nodes[0];
-                const other_nodes = nodes[1..];
+            // fn recursiveIntersection(comptime initial_node_count: u8, nodes: []Node, initial_depth: u8, prefix: *[key_length]u8, allocator: std.mem.Allocator) allocError!Node {
+            //     const first_node = nodes[0];
+            //     const other_nodes = nodes[1..];
 
-                const first_node_hash = first_node.hash(prefix.*);
+            //     const first_node_hash = first_node.hash(prefix.*);
                 
-                for(other_nodes) |other_node| {
-                    if (!first_node_hash.equal(other_node.hash(prefix.*))) break;
-                } else {
-                    return (try first_node.ref(allocator)) orelse first_node;
-                }
+            //     for(other_nodes) |other_node| {
+            //         if (!first_node_hash.equal(other_node.hash(prefix.*))) break;
+            //     } else {
+            //         return (try first_node.ref(allocator)) orelse first_node;
+            //     }
 
-                var max_depth = first_node.coveredDepth();
-                for (other_nodes) |other_node| {
-                    max_depth = std.math.min(max_depth, other_node.coveredDepth());
-                }
+            //     var max_depth = first_node.coveredDepth();
+            //     for (other_nodes) |other_node| {
+            //         max_depth = std.math.min(max_depth, other_node.coveredDepth());
+            //     }
 
-                var depth = initial_depth;
-                outer: while (depth < max_depth):(depth += 1) {
-                    const first_peek = first_node.peek(depth).?;
-                    for (other_nodes) |other_node| {
-                        const other_peek = other_node.peek(depth).?;
-                        if (first_peek != other_peek) break :outer;
-                    }
-                    prefix[depth] = first_peek;
-                }
+            //     var depth = initial_depth;
+            //     outer: while (depth < max_depth):(depth += 1) {
+            //         const first_peek = first_node.peek(depth).?;
+            //         for (other_nodes) |other_node| {
+            //             const other_peek = other_node.peek(depth).?;
+            //             if (first_peek != other_peek) break :outer;
+            //         }
+            //         prefix[depth] = first_peek;
+            //     }
 
-                if (depth == key_length) return (try first_node.ref(allocator)) orelse first_node;
+            //     if (depth == key_length) return (try first_node.ref(allocator)) orelse first_node;
 
-                var intersection_childbits = ByteBitset.initFull(); // TODO use to allocate a better fitting branch node.
+            //     var intersection_childbits = ByteBitset.initFull(); // TODO use to allocate a better fitting branch node.
 
-                for (nodes) |node| {
-                    node.propose(depth, &intersection_childbits);
-                }
+            //     for (nodes) |node| {
+            //         node.propose(depth, &intersection_childbits);
+            //     }
 
-                var intersection_count = 0;
-                var branch_node:Node = undefined;
-                var buffered_child: Node = undefined;
+            //     var intersection_count = 0;
+            //     var branch_node:Node = undefined;
+            //     var buffered_child: Node = undefined;
 
-                var children: [initial_node_count]Node = undefined;
-                while (intersection_childbits.drainNextAscending()) | index | {
-                    prefix[depth] = index;
+            //     var children: [initial_node_count]Node = undefined;
+            //     while (intersection_childbits.drainNextAscending()) | index | {
+            //         prefix[depth] = index;
 
-                    for (nodes) |node, i| {
-                        const child = node.get(depth, index);
-                        children[i] = child;
-                    }
+            //         for (nodes) |node, i| {
+            //             const child = node.get(depth, index);
+            //             children[i] = child;
+            //         }
 
-                    const intersection_node = try recursiveIntersection(initial_node_count, children[0..], depth + 1, prefix, allocator);
+            //         const intersection_node = try recursiveIntersection(initial_node_count, children[0..], depth + 1, prefix, allocator);
                     
-                    if(!intersection_node.isNone()) {
-                        const new_child_node = try WrapInfixNode(depth, prefix.*, intersection_node, allocator);
-                        switch(intersection_count) {
-                            0 => {
-                                buffered_child = new_child_node;                            
-                            },
-                            1 => {
-                                branch_node = @bitCast(Node, try BranchNodeBase.init(depth, prefix.*, allocator))
-                                var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
-                                while (displaced) |entry| {
-                                    branch_node = try branch_node.grow(allocator);
-                                    displaced = branch_node.reinsertBranch(entry);
-                                }
-                                buffered_child = new_child_node;
-                            },
-                            else => {
-                                var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
-                                while (displaced) |entry| {
-                                    branch_node = try branch_node.grow(allocator);
-                                    displaced = branch_node.reinsertBranch(entry);
-                                }
-                                buffered_child = new_child_node;
-                            }
-                        }
-                        intersection_count += 1;
-                    }
-                }
+            //         if(!intersection_node.isNone()) {
+            //             const new_child_node = try WrapInfixNode(depth, prefix.*, intersection_node, allocator);
+            //             switch(intersection_count) {
+            //                 0 => {
+            //                     buffered_child = new_child_node;                            
+            //                 },
+            //                 1 => {
+            //                     branch_node = @bitCast(Node, try BranchNodeBase.init(depth, prefix.*, allocator));
+            //                     var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+            //                     while (displaced) |entry| {
+            //                         branch_node = try branch_node.grow(allocator);
+            //                         displaced = branch_node.reinsertBranch(entry);
+            //                     }
+            //                     buffered_child = new_child_node;
+            //                 },
+            //                 else => {
+            //                     var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+            //                     while (displaced) |entry| {
+            //                         branch_node = try branch_node.grow(allocator);
+            //                         displaced = branch_node.reinsertBranch(entry);
+            //                     }
+            //                     buffered_child = new_child_node;
+            //                 }
+            //             }
+            //             intersection_count += 1;
+            //         }
+            //     }
 
-                switch(intersection_count) {
-                    0 => {
-                        buffered_child = new_child_node;                            
-                    },
-                    1 => {
-                        branch_node = @bitCast(Node, try BranchNodeBase.init(depth, prefix.*, allocator))
-                        var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
-                        while (displaced) |entry| {
-                            branch_node = try branch_node.grow(allocator);
-                            displaced = branch_node.reinsertBranch(entry);
-                        }
-                    },
-                    else => {
-                        var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
-                        while (displaced) |entry| {
-                            branch_node = try branch_node.grow(allocator);
-                            displaced = branch_node.reinsertBranch(entry);
-                        }
-                    }
-                }
-                if(intersection_count == 0) {
-                    branch_node.rel(allocator);
-                    return Node.none;
-                }
+            //     switch(intersection_count) {
+            //         0 => {
+            //             buffered_child = new_child_node;                            
+            //         },
+            //         1 => {
+            //             branch_node = @bitCast(Node, try BranchNodeBase.init(depth, prefix.*, allocator));
+            //             var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+            //             while (displaced) |entry| {
+            //                 branch_node = try branch_node.grow(allocator);
+            //                 displaced = branch_node.reinsertBranch(entry);
+            //             }
+            //         },
+            //         else => {
+            //             var displaced = branch_node.createBranch(buffered_child, depth, prefix.*);
+            //             while (displaced) |entry| {
+            //                 branch_node = try branch_node.grow(allocator);
+            //                 displaced = branch_node.reinsertBranch(entry);
+            //             }
+            //         }
+            //     }
+            //     if(intersection_count == 0) {
+            //         branch_node.rel(allocator);
+            //         return Node.none;
+            //     }
 
-                if(intersection_count == 1) {
-                    const index = intersection_childbits.findFirstSet().?;
-                    prefix[depth] = index;
+            //     if(intersection_count == 1) {
+            //         const index = intersection_childbits.findFirstSet().?;
+            //         prefix[depth] = index;
 
-                    for (nodes) |node, i| {
-                        const child = node.get(depth, index);
-                        children[i] = child;
-                    }
+            //         for (nodes) |node, i| {
+            //             const child = node.get(depth, index);
+            //             children[i] = child;
+            //         }
 
-                    const intersection_node = try recursiveIntersection(initial_node_count, children[0..], depth + 1, prefix, allocator);
-                    return try WrapInfixNode(depth, prefix.*, intersection_node, allocator);
-                }
+            //         const intersection_node = try recursiveIntersection(initial_node_count, children[0..], depth + 1, prefix, allocator);
+            //         return try WrapInfixNode(depth, prefix.*, intersection_node, allocator);
+            //     }
 
 
-                return branch_node;
-            }
+            //     return branch_node;
+            // }
 
-            pub fn initIntersection(comptime tree_count: u8, trees: []Tree, allocator: std.mem.Allocator) allocError!Tree {
-                var children: [tree_count]Node = undefined;
-                for (trees) |tree, i| {
-                    children[i] = tree.child;
-                }
+            // pub fn initIntersection(comptime tree_count: u8, trees: []Tree, allocator: std.mem.Allocator) allocError!Tree {
+            //     var children: [tree_count]Node = undefined;
+            //     for (trees) |tree, i| {
+            //         children[i] = tree.child;
+            //     }
 
-                var prefix: [key_length]u8 = undefined;
+            //     var prefix: [key_length]u8 = undefined;
 
-                return Tree{ .child = try recursiveUnion(tree_count, children[0..], 0, &prefix, allocator), .allocator = allocator };
-            }
+            //     return Tree{ .child = try recursiveUnion(tree_count, children[0..], 0, &prefix, allocator), .allocator = allocator };
+            // }
 
         //     subtract(other) {
         //     const thisNode = this.child;
