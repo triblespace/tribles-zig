@@ -71,7 +71,7 @@ fn random_choice(rng: std.rand.Random, set: ByteBitset) ?u8 {
     var possible_values_len: usize = 0;
 
     var set_iterator = set;
-    while (set_iterator.drainNext(true)) |b| {
+    while (set_iterator.drainNextAscending()) |b| {
         possible_values[possible_values_len] = @intCast(u8, b);
         possible_values_len += 1;
     }
@@ -85,7 +85,7 @@ fn generate_rand_LUT_helper(rng: std.rand.Random, dependencies: []const Byte_LUT
 
     var candidates = remaining;
     var iter = remaining;
-    while (iter.drainNext(true)) |candidate| {
+    while (iter.drainNextAscending()) |candidate| {
         for (dependencies) |d| {
             if ((d[i] & mask) == (candidate & mask)) {
                 candidates.unset(candidate);
@@ -169,7 +169,7 @@ const NodeTag = enum(u8) {
     twig,
 };
 
-pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) type {
+pub fn PACT(comptime segments: []const u8, T: type) type {
 
     return struct {
         pub const key_length = blk: {
@@ -1145,7 +1145,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     if (self.body.ref_count == 0) {
                         defer allocator.free(std.mem.asBytes(self.body));
                         var child_iterator = self.body.child_set;
-                        while (child_iterator.drainNext(true)) |child_byte_key| {
+                        while (child_iterator.drainNextAscending()) |child_byte_key| {
                             self.getBranch(@intCast(u8, child_byte_key)).rel(allocator);
                         }
                     }
@@ -1279,7 +1279,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     new_head.body = self.body;
 
                     var child_iterator = new_body.child_set;
-                    while (child_iterator.drainNext(true)) |child_byte_key| {
+                    while (child_iterator.drainNextAscending()) |child_byte_key| {
                         const cast_child_byte_key = @intCast(u8, child_byte_key);
                         const child = new_head.getBranch(cast_child_byte_key);
                         const potential_child_copy = try child.ref(allocator);
@@ -1373,7 +1373,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
 
                     var wasted_infix_bytes: usize = 0;
                     var child_iterator = self.body.child_set;
-                    while (child_iterator.drainNext(true)) |child_byte_key| {
+                    while (child_iterator.drainNextAscending()) |child_byte_key| {
                         const child = self.getBranch(@intCast(u8, child_byte_key));
                         wasted_infix_bytes += (self.branch_depth - child.range());
                     }
@@ -1925,16 +1925,16 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     infix: while (branch_depth < key_length) : (branch_depth += 1) {
                         self.key[branch_depth] = node.peek(branch_depth) orelse break :infix;
                     } else {
-                        var exhausted_depth = self.start_points.drainNext(false).?;
+                        var exhausted_depth = self.start_points.drainNextDescending().?;
                         while (self.start_points.findLastSet()) |parent_depth| {
                             var branches = &self.branch_state[exhausted_depth];
-                            if (branches.drainNext(true)) |branch_key| {
+                            if (branches.drainNextAscending()) |branch_key| {
                                 self.start_points.set(exhausted_depth);
                                 self.path[exhausted_depth] = self.path[parent_depth].get(exhausted_depth, branch_key);
                                 assert(self.path[exhausted_depth].unknown.tag != .none);
                                 break;
                             } else {
-                                exhausted_depth = self.start_points.drainNext(false).?;
+                                exhausted_depth = self.start_points.drainNextDescending().?;
                             }
                         }
                         return IterationResult{ .start_depth = start_depth, .node = node, .key = self.key };
@@ -1944,7 +1944,8 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                     branches.setAll();
                     node.propose(branch_depth, branches);
 
-                    const branch_key = branches.drainNext(true).?;
+                    const branch_key = branches.drainNextAscending().?;
+                    self.key[branch_depth] = branch_key;
                     self.path[branch_depth] = node.get(branch_depth, branch_key);
 
                     self.start_points.set(branch_depth);
@@ -1961,84 +1962,182 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 return iterator;
             }
 
-            pub const Cursor = struct {
-                depth: u8 = 0,
-                path: [key_length]Node = [_]Node{Node.none} ** key_length,
-                key: [key_length]u8 = [_]u8{0} ** key_length,
+            const fn CursorIterator(max_depth: u8) type {
+                return struct {
+                    branch_points: ByteBitset = ByteBitset.initEmpty(),
+                    key: [max_depth]u8 = [_]u8{0} ** max_depth,
+                    branch_state: [max_depth]ByteBitset = [_]ByteBitset{ByteBitset.initEmpty()} ** max_depth,
+                    mode: ExplorationMode = .path,
+                    depth: u8 = 0,
+                    cursor: Cursor,
 
-                pub const gaps = blk: {
-                    var g = ByteBitset.initEmpty();
+                    const ExplorationMode = enum { path, branch, backtrack };
 
-                    var depth = 0;
-                    for (segments) | s | {
-                        const pad = segment_size - s;
+                    pub fn init(self: *const Cursor) CursorIterator {
+                        var iterator = CursorIterator{.cursor = Cursor};
+                        iterator.branch_points.set(0):
+                        return iterator;
+                    }
 
-                        depth += pad;
+                    pub fn next(self: *CursorIterator) ?[max_depth]u8 {
+                        outer: while (true) {
+                            switch (mode) {
+                                .path => {
+                                    while (self.depth < max_depth) {
+                                        if (self.cursor.peek()) |key_fragment| {
+                                            self.key[self.depth] = key_fragment;
+                                            self.cursor.push(key_fragment);
+                                            self.depth += 1;
+                                        } else {
+                                            self.branch_state[self.depth].setAll();
+                                            self.cursor.propose(branch_state[self.depth]);
+                                            self.branch_points.set(self.depth);
+                                            self.mode = .branch;
+                                            continue :outer;
+                                        }
+                                    } else {
+                                        self.mode = .backtrack
+                                        return self.key;
+                                    }
+                                },
+                                .branch => {
+                                    if(self.branch_state[self.depth].drainNextAscending())) |key_fragment| {
+                                        self.key[self.depth] = key_fragment;
+                                        self.cursor.push(key_fragment);
+                                        self.depth += 1;
+                                        self.mode = .path;
+                                        continue :outer;
+                                    } else {
+                                        self.branch_points.unset(self.depth);
+                                        self.mode = .backtrack;
+                                        continue :outer;
+                                    }
+                                },
+                                .backtrack => {
+                                    if(self.branch_points.drainNextDescending()) |parent_depth| {
+                                        while (parent_depth < self.depth) : (self.depth -= 1) self.cursor.pop();
+                                        self.mode = .branch;
+                                        continue :outer;
+                                    } else {
+                                        return null;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                };
+            }
 
-                        var j = pad;
-                        while (j < segment_size):(j += 1) {
-                            g.set(depth);
-                            depth += 1;
+            pub fn PaddedCursor(comptime segment_size: u8) type {
+                return struct {
+                    depth: u8 = 0,
+                    cursor: Cursor;
+
+                    pub const padding = blk: {
+                        var g = ByteBitset.initFull();
+
+                        var depth = 0;
+                        for (segments) | s | {
+                            const pad = segment_size - s;
+
+                            depth += pad;
+
+                            var j = pad;
+                            while (j < segment_size):(j += 1) {
+                                g.unset(depth);
+                                depth += 1;
+                            }
+                        }
+
+                        break :blk g;
+                    };
+
+                    pub fn init(cursor: Cursor) @This() {
+                        return @This(){.cursor = cursor};
+                    }
+
+                    // Interface API >>>
+
+                    pub fn peek(self: *Cursor) ?u8 {
+                        if (padding.isSet(self.depth)) return 0;
+                        return self.cursor.peek();
+                    }
+
+                    pub fn propose(self: *Cursor, bitset: *ByteBitset) void {
+                        if (padding.isSet(self.depth)) {
+                            bitset.singleBitIntersect(0);
+                        } else {
+                            self.cursor.propose(bitset);
                         }
                     }
 
-                    break :blk g;
-                };
-
-                // Maps push_depth -> path_depth.
-                pub const depth_mapping = blk: {
-                    var mapping: [256]u8 = [_]u8{0} ** 256;
-                    var depth: u16 = 0;
-                    var path_depth: u8 = 0;
-                    while (depth < 256) {
-                        mapping[depth] = path_depth;
-                        if(gaps.isSet(depth)) path_depth += 1;
-                        depth += 1;
+                    pub fn pop(self: *Cursor) void {
+                        self.depth -= 1;
+                        if (padding.isUnset(self.depth)) {
+                            self.cursor.pop();
+                        }
                     }
-                    break :blk mapping;
+
+                    pub fn push(self: *Cursor, byte: u8) void {
+                        if (padding.isUnset(self.depth)) {
+                            self.cursor.push();
+                        }
+                        self.depth += 1;
+                    }
+
+                    pub fn segmentCount(self: *Cursor) u32 {
+                        return self.cursor.segmentCount();
+                    }
+
+                    // <<< Interface API
+
+                    pub fn iterate(self: *Cursor) CursorIterator {
+                        return CursorIterator(segments.len * segment_size).init(self);
+                    }
                 };
+            }
+
+            pub const Cursor = struct {
+                depth: u8 = 0,
+                path: [key_length]Node = [_]Node{Node.none} ** key_length,
 
                 pub fn init(tree: Tree) @This() {
                     const self = @This(){};
                     self.path[0] = tree.child;
+                    return self;
                 }
 
+                // Interface API >>>
+
                 pub fn peek(self: *Cursor) ?u8 {
-                    if (gaps.isUnset(self.depth)) return 0;
-                    
-                    const path_depth = depth_mapping[self.depth];
-                    return self.nodePath[path_depth].peek(path_depth);
+                    return self.nodePath[self.depth].peek(self.depth);
                 }
 
                 pub fn propose(self: *Cursor, bitset: *ByteBitset) void {
-                    if (gaps.isUnset(self.depth)) {
-                        bitset.singleBitIntersect(0);
-                    } else {
-                        const path_depth = depth_mapping[self.depth];
-                        self.path[path_depth].propose(path_depth, bitset);
-                    }
+                    self.path[self.depth].propose(self.depth, bitset);
                 }
 
-                pub fn pop(self: *Cursor, times: u8) void {
-                    self.depth -= times;
+                pub fn pop(self: *Cursor) void {
+                    self.depth -= 1;
                 }
 
                 pub fn push(self: *Cursor, byte: u8) void {
-                    if (gaps.isUnset(self.depth)) {
-                        const path_depth = depth_mapping[self.depth];
-                        self.path[path_depth + 1] = self.nodePath[path_depth].get(path_depth, byte);
-                    }
+                    self.path[self.depth + 1] = self.nodePath[self.depth].get(self.depth, byte);
                     self.depth += 1;
                 }
 
-                pub fn node(self: *Cursor) Node {
-                    const path_depth = depth_mapping[self.depth];
-                    return self.path[path_depth];
+                pub fn segmentCount(self: *Cursor) u32 {
+                    return self.path[self.depth].segmentCount(self.depth);
                 }
 
-                pub fn segmentCount(self: *Cursor) u32 {
-                    const path_depth = depth_mapping[self.depth];
-                    return self.path[path_depth].segmentCount(path_depth);
+                // <<< Interface API
+
+                pub fn node(self: *Cursor) Node {
+                    return self.path[self.depth];
+                }
+
+                pub fn iterate(self: *Cursor) CursorIterator {
+                    return CursorIterator(key_length).init(self);
                 }
             };
 
@@ -2144,7 +2243,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 // is a witness that prooves that there is no subset relationship.
                 if (!left_childbits.isEmpty()) return false;
 
-                while (intersect_childbits.drainNext(true)) | index | {
+                while (intersect_childbits.drainNextAscending()) | index | {
                     const left_child = leftNode.get(depth, index);
                     const right_child = rightNode.get(depth, index);
                     prefix[depth] = index;
@@ -2178,7 +2277,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 leftNode.propose(depth, intersect_childbits);
                 rightNode.propose(depth, intersect_childbits);
 
-                while (intersect_childbits.drainNext(true)) | index | {
+                while (intersect_childbits.drainNextAscending()) | index | {
                     const left_child = leftNode.get(depth, index);
                     const right_child = rightNode.get(depth, index);
                     prefix[depth] = index;
@@ -2238,7 +2337,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
 
                 var children: [initial_node_count]Node = undefined;
                 var children_len: u8 = 0;
-                while (union_childbits.drainNext(true)) | index | {
+                while (union_childbits.drainNextAscending()) | index | {
                     children_len = 0;
                     prefix[depth] = index;
 
@@ -2322,7 +2421,7 @@ pub fn PACT(comptime segments: []const u8, comptime segment_size: u8, T: type) t
                 var buffered_child: Node = undefined;
 
                 var children: [initial_node_count]Node = undefined;
-                while (intersection_childbits.drainNext(true)) | index | {
+                while (intersection_childbits.drainNextAscending()) | index | {
                     prefix[depth] = index;
 
                     for (nodes) |node, i| {

@@ -79,18 +79,21 @@ pub const ByteBitset = extern struct {
     }
 
     /// Returns the index of the next set bit
-    /// in the bit set, in the configured order, while unseting it.
-    pub fn drainNext(self: *ByteBitset, comptime ascending: bool) ?u8 {
+    /// in the bit set, in ascending order, while unseting it.
+    pub fn drainNextAscending(self: *ByteBitset) ?u8 {
         if (self.isEmpty()) return null;
-        if (ascending) {
-            const next_index = self.findFirstSet() orelse unreachable;
-            self.unset(next_index);
-            return next_index;
-        } else {
-            const next_index = self.findLastSet() orelse unreachable;
-            self.unset(next_index);
-            return next_index;
-        }
+        const next_index = self.findFirstSet() orelse unreachable;
+        self.unset(next_index);
+        return next_index;
+    }
+
+    /// Returns the index of the next set bit
+    /// in the bit set, in descending order, while unseting it.
+    pub fn drainNextDescending(self: *ByteBitset) ?u8 {
+        if (self.isEmpty()) return null;
+        const next_index = self.findLastSet() orelse unreachable;
+        self.unset(next_index);
+        return next_index;
     }
 
     pub fn isSupersetOf(left: *ByteBitset, right: *ByteBitset) bool {
