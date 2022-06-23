@@ -1,0 +1,3 @@
+[submodule "blaked25519"]
+	path = deps/zig-ed25519-blake2b
+	url = git@github.com:cryptocode/zig-ed25519-blake2b.git
