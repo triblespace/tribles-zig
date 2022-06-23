@@ -1974,9 +1974,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const ExplorationMode = enum { path, branch, backtrack };
 
                     pub fn init(iterated_cursor: Cursor) @This() {
-                        var iterator = @This(){.cursor = iterated_cursor};
-                        iterator.branch_points.set(0);
-                        return iterator;
+                        return @This(){.cursor = iterated_cursor};
                     }
 
                     pub fn next(self: *@This()) ?[max_depth]u8 {
@@ -2014,7 +2012,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                                     }
                                 },
                                 .backtrack => {
-                                    if(self.branch_points.drainNextDescending()) |parent_depth| {
+                                    if(self.branch_points.findLastSet()) |parent_depth| {
                                         while (parent_depth < self.depth) : (self.depth -= 1) self.cursor.pop();
                                         self.mode = .branch;
                                         continue :outer;
@@ -2112,18 +2110,22 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // Interface API >>>
 
                 pub fn peek(self: *Cursor) ?u8 {
+                    //std.debug.print("peek()@{d}\n", .{self.depth});
                     return self.path[self.depth].peek(self.depth);
                 }
 
                 pub fn propose(self: *Cursor, bitset: *ByteBitset) void {
+                    //std.debug.print("propose()@{d}\n", .{self.depth});
                     self.path[self.depth].propose(self.depth, bitset);
                 }
 
                 pub fn pop(self: *Cursor) void {
+                    //std.debug.print("pop()@{d}\n", .{self.depth});
                     self.depth -= 1;
                 }
 
                 pub fn push(self: *Cursor, byte: u8) void {
+                    //std.debug.print("push({d})@{d}\n", .{byte, self.depth});
                     self.path[self.depth + 1] = self.path[self.depth].get(self.depth, byte);
                     self.depth += 1;
                 }

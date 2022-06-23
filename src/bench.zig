@@ -11,7 +11,7 @@ const keyHash = @import("./PACT.zig").keyHash;
 const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 
 const sample_size: usize = 1;
-const data_size: usize = 10;
+const data_size: usize = 1000000;
 const change_prob = 0.5;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u64);
@@ -226,7 +226,7 @@ pub fn benchmark_pact_iterate() !void {
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
         try tree.put(t.data, null);
-        std.debug.print("{any}\n", .{t.data});
+        //std.debug.print("{any}\n", .{t.data});
 
     }
 
@@ -235,16 +235,16 @@ pub fn benchmark_pact_iterate() !void {
     coz.begin("iterate");
     var j: u64 = 0;
     var iter = tree.cursor().iterate();
-    while(iter.next()) |key| {
+    while(iter.next()) |_| {
         j += 1;
-        std.debug.print("{any}\n", .{key});
+        //std.debug.print("{any}\n", .{key});
         coz.progress("next");
     }
     coz.end("iterate");
     t_total += timer.lap();
 
     std.debug.print("Iterated {d} of {d} in {d}ns\n", .{ j, tree.count(), t_total });
-    std.debug.print("{s}\n", .{tree.mem_info()});
+    //std.debug.print("{s}\n", .{tree.mem_info()});
 
 }
 
