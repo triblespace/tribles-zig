@@ -13,15 +13,15 @@ pub fn isZeroes(bytes: [16]u8) bool {
     return true;
 }
 
-const EAVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree;
-const EVAIndex = PACT(&[_]u8{16, 32, 16}, 32, u8).Tree;
-const AEVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree;
-const AVEIndex = PACT(&[_]u8{16, 32, 16}, 32, u8).Tree;
-const VEAIndex = PACT(&[_]u8{32, 16, 16}, 32, u8).Tree;
-const VAEIndex = PACT(&[_]u8{32, 16, 16}, 32, u8).Tree;
-const EisAIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree; // Same order as EAV
-const EisVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree; // Same order as EAV
-const AisVIndex = PACT(&[_]u8{16, 16, 32}, 32, u8).Tree; // Same order as AEV
+const EAVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree;
+const EVAIndex = PACT(&[_]u8{16, 32, 16}, u8).Tree;
+const AEVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree;
+const AVEIndex = PACT(&[_]u8{16, 32, 16}, u8).Tree;
+const VEAIndex = PACT(&[_]u8{32, 16, 16}, u8).Tree;
+const VAEIndex = PACT(&[_]u8{32, 16, 16}, u8).Tree;
+const EisAIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree; // Same order as EAV
+const EisVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree; // Same order as EAV
+const AisVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree; // Same order as AEV
 
 pub const TribleSet = struct {
     eav: EAVIndex,

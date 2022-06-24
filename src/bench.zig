@@ -9,6 +9,7 @@ const pact = @import("./PACT.zig");
 const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
 const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
+const commit = @import("./commit.zig");
 
 const sample_size: usize = 1;
 const data_size: usize = 1000000;
@@ -20,7 +21,7 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_std();
+        try benchmark_commit();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -79,7 +80,7 @@ pub fn benchmark_pact_write() !void {
     //var tree = PACT.Tree.init(gp.allocator());
     defer tree.deinit();
 
-    //std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
+    std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
@@ -351,4 +352,51 @@ pub fn benchmark_std() !void {
     t_total += timer.lap();
 
     std.debug.print("Iterated {d} in {d}ns\n", .{ j, t_total });
+}
+
+
+pub fn benchmark_commit() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer _ = arena.deinit();
+    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
+    //defer _ = gp.deinit();
+
+    var timer = try time.Timer.start();
+    var t_total: u64 = 0;
+
+    var rnd = std.rand.DefaultPrng.init(0).random();
+
+    var set = TribleSet.init(arena.allocator());
+    defer set.deinit();
+
+    std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
+
+    var i: u64 = 0;
+    var t = Trible.initAribitrary(rnd);
+
+    while (i < data_size) : (i += 1) {
+        t = Trible.initAribitraryLike(rnd, change_prob, t);
+
+        try set.put(&t);
+    }
+    
+    var secret: [32]u8 = undefined;
+    rnd.bytes(secret[0..]);
+    const keypair = try commit.KeyPair.create(secret);
+
+    var commit_id: [16]u8 = undefined;
+    rnd.bytes(commit_id[0..]);
+
+    coz.begin("create_commit");
+    timer.reset();
+
+    
+    const com = try commit.Commit.initFromTribles(keypair, commit_id, set, arena.allocator());
+
+    t_total += timer.lap();
+    coz.end("create_commit");
+
+    try com.deinit(arena.allocator());
+
+    std.debug.print("Created commit for {d} triple in {d}ns\n", .{ i, t_total });
 }
