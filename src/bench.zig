@@ -20,7 +20,7 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_pact_iterate();
+        try benchmark_std();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -205,7 +205,7 @@ pub fn benchmark_pact_intersection() !void {
     std.debug.print("Intersection {d} in {d}ns\n", .{ intersection_tree.count(), t_total });
 }
 
-pub fn benchmark_pact_iterate() !void {
+pub fn benchmark_pact_nodes_iterate() !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer _ = arena.deinit();
     //var gp = std.heap.GeneralPurposeAllocator(.{}){};
@@ -226,7 +226,6 @@ pub fn benchmark_pact_iterate() !void {
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
         try tree.put(t.data, null);
-        //std.debug.print("{any}\n", .{t.data});
 
     }
 
@@ -234,10 +233,49 @@ pub fn benchmark_pact_iterate() !void {
     timer.reset();
     coz.begin("iterate");
     var j: u64 = 0;
+    var iter = tree._nodes();
+    while(iter.next()) |_| {
+        j += 1;
+        coz.progress("next");
+    }
+    coz.end("iterate");
+    t_total += timer.lap();
+
+    std.debug.print("Iterated {d} in {d}ns\n", .{ j, t_total });
+
+}
+
+pub fn benchmark_pact_cursor_iterate() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer _ = arena.deinit();
+    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
+    //defer _ = gp.deinit();
+
+    var timer = try time.Timer.start();
+    var t_total: u64 = 0;
+
+    var rnd = std.rand.DefaultPrng.init(0).random();
+
+    var tree = PACT.Tree.init(arena.allocator());
+    //var tree = PACT.Tree.init(gp.allocator());
+    defer tree.deinit();
+
+    var t = Trible.initAribitrary(rnd);
+
+    var i: u64 = 0;
+    while (i < data_size) : (i += 1) {
+        t = Trible.initAribitraryLike(rnd, change_prob, t);
+        try tree.put(t.data, null);
+
+    }
+
+    std.debug.print("Iterating cursor of PACT with {d} tribles.\n", .{data_size});
+    timer.reset();
+    coz.begin("iterate");
+    var j: u64 = 0;
     var iter = tree.cursor().iterate();
     while(iter.next()) |_| {
         j += 1;
-        //std.debug.print("{any}\n", .{key});
         coz.progress("next");
     }
     coz.end("iterate");
@@ -299,4 +337,18 @@ pub fn benchmark_std() !void {
     }
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ data_size, t_total });
+
+    std.debug.print("Iterating {d} tribles in AutoHashMap.\n", .{data_size});
+    timer.reset();
+    coz.begin("iterate");
+    var j: u64 = 0;
+    var iter = map.iterator();
+    while(iter.next()) |_| {
+        j += 1;
+        coz.progress("next");
+    }
+    coz.end("iterate");
+    t_total += timer.lap();
+
+    std.debug.print("Iterated {d} in {d}ns\n", .{ j, t_total });
 }
