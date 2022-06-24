@@ -35,17 +35,17 @@ pub const Commit = struct {
     const header_size = 128;
 
     pub const TribleIterator = struct {
-        commit: *Commit,
+        commit: Commit,
         offset: usize,
 
-        pub fn init(commit: *Commit) TribleIterator {
+        pub fn init(commit: Commit) TribleIterator {
             return TribleIterator{.commit=commit, .offset=header_size};
         }
 
         pub fn next(self: *TribleIterator) ?*Trible {
             if(self.offset >= self.commit.data.len) return null;
 
-            const t: *Trible = std.mem.bytesAsValue(Trible, self.commit.data[self.offset .. (self.offset + Trible.size)]);
+            const t = std.mem.bytesAsValue(Trible, self.commit.data[self.offset..][0..Trible.size]);
             self.offset += Trible.size;
             return t;
         }
@@ -110,8 +110,19 @@ pub const Commit = struct {
         blaked25519.verify(self.signature(), msg, self.pubkey());
     }
 
-    pub fn tribles(self: Commit) TribleIterator {
+    pub fn iterate(self: Commit) TribleIterator {
         return TribleIterator.init(self);
+    }
+
+    pub fn toTriblesetSet(self: Commit, allocator: std.mem.Allocator) !TribleSet {
+        var iter = self.iterate();
+        var set = TribleSet.init(allocator);
+
+        while(iter.next()) |trible| {
+            try set.put(trible);
+        }
+        
+        return set;
     }
 };
 

@@ -377,9 +377,15 @@ pub fn benchmark_commit() !void {
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
 
+        timer.reset();
         try set.put(&t);
+        t_total += timer.lap();
+
     }
     
+    std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
+
+
     var secret: [32]u8 = undefined;
     rnd.bytes(secret[0..]);
     const keypair = try commit.KeyPair.create(secret);
@@ -390,13 +396,23 @@ pub fn benchmark_commit() !void {
     coz.begin("create_commit");
     timer.reset();
 
-    
     const com = try commit.Commit.initFromTribles(keypair, commit_id, set, arena.allocator());
 
-    t_total += timer.lap();
+    t_total = timer.lap();
     coz.end("create_commit");
+
+    std.debug.print("Created commit for {d} triple in {d}ns\n", .{ i, t_total });
+
+    coz.begin("load_commit");
+
+    timer.reset();
+    var read_set = try com.toTriblesetSet(arena.allocator());
+    defer read_set.deinit();
+
+    t_total = timer.lap();
+    coz.end("load_commit");
 
     try com.deinit(arena.allocator());
 
-    std.debug.print("Created commit for {d} triple in {d}ns\n", .{ i, t_total });
+    std.debug.print("Read commit for {d} triple in {d}ns\n", .{ read_set.count(), t_total });
 }
