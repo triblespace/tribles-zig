@@ -1,95 +1,140 @@
-// // TODO Convert JS to Zig.
+const std = @import("std");
+const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 
-// const MODE_PATH = 0;
-// const MODE_BRANCH = 1;
-// const MODE_BACKTRACK = 2;
-// function* resolveSegment(cursors, binding) {
-//   let mode = MODE_PATH;
-//   let bitset = null;
-//   let depth = 0;
-//   let byte = 0;
-//   const branchStack = [[bitset, byte, depth]];
+pub fn CursorIterator(comptime cursor_type: type, comptime max_depth: u8) type {
+    return struct {
+        branch_points: ByteBitset = ByteBitset.initEmpty(),
+        key: [max_depth]u8 = [_]u8{0} ** max_depth,
+        branch_state: [max_depth]ByteBitset = [_]ByteBitset{ByteBitset.initEmpty()} ** max_depth,
+        mode: ExplorationMode = .path,
+        depth: u8 = 0,
+        cursor: cursor_type,
 
-//   let c = 0;
-//   outer: while (true) {
-//     if (mode === MODE_PATH) {
-//       while (true) {
-//         if (depth === 32) {
-//           yield;
-//           mode = MODE_BACKTRACK;
-//           continue outer;
-//         }
+        const ExplorationMode = enum { path, branch, backtrack };
 
-//         c = 0;
-//         byte = cursors[c].peek();
-//         if (byte === null) {
-//           byte = 0;
-//           bitset = new Uint32Array(8);
-//           bitset.fill(0xffffffff);
-//           for (; c < cursors.length; c++) {
-//             cursors[c].propose(bitset);
-//           }
-//           mode = MODE_BRANCH;
-//           continue outer;
-//         }
-//         for (c = 1; c < cursors.length; c++) {
-//           const other_byte = cursors[c].peek();
-//           if (other_byte === null) {
-//             bitset = new Uint32Array(8);
-//             setBit(bitset, byte);
-//             for (; c < cursors.length; c++) {
-//               cursors[c].propose(bitset);
-//             }
-//             mode = MODE_BRANCH;
-//             continue outer;
-//           }
-//           if (byte !== other_byte) {
-//             mode = MODE_BACKTRACK;
-//             continue outer;
-//           }
-//         }
+        pub fn init(iterated_cursor: cursor_type) @This() {
+            return @This(){.cursor = iterated_cursor};
+        }
 
-//         binding[depth] = byte;
-//         for (c of cursors) {
-//           c.push(byte);
-//         }
-//         depth++;
-//       }
-//     }
+        pub fn next(self: *@This()) ?[max_depth]u8 {
+            outer: while (true) {
+                switch (self.mode) {
+                    .path => {
+                        while (self.depth < max_depth) {
+                            if (self.cursor.peek()) |key_fragment| {
+                                self.key[self.depth] = key_fragment;
+                                self.cursor.push(key_fragment);
+                                self.depth += 1;
+                            } else {
+                                self.cursor.propose(&self.branch_state[self.depth]);
+                                self.branch_points.set(self.depth);
+                                self.mode = .branch;
+                                continue :outer;
+                            }
+                        } else {
+                            self.mode = .backtrack;
+                            return self.key;
+                        }
+                    },
+                    .branch => {
+                        if(self.branch_state[self.depth].drainNextAscending()) |key_fragment| {
+                            self.key[self.depth] = key_fragment;
+                            self.cursor.push(key_fragment);
+                            self.depth += 1;
+                            self.mode = .path;
+                            continue :outer;
+                        } else {
+                            self.branch_points.unset(self.depth);
+                            self.mode = .backtrack;
+                            continue :outer;
+                        }
+                    },
+                    .backtrack => {
+                        if(self.branch_points.findLastSet()) |parent_depth| {
+                            while (parent_depth < self.depth) : (self.depth -= 1) self.cursor.pop();
+                            self.mode = .branch;
+                            continue :outer;
+                        } else {
+                            return null;
+                        }
+                    }
+                }
+            }
+        }
+    };
+}
 
-//     if (mode === MODE_BRANCH) {
-//       byte = seekBit(byte, bitset);
-//       if (byte > 255) {
-//         mode = MODE_BACKTRACK;
-//         continue outer;
-//       }
-//       binding[depth] = byte;
-//       branchStack.push([bitset, byte + 1, depth]);
-//       for (c of cursors) {
-//         c.push(byte);
-//       }
-//       depth++;
-//       mode = MODE_PATH;
-//       continue outer;
-//     }
+pub fn PaddedCursor(comptime cursor_type: type, comptime segments: []const u8, comptime segment_size: u8) type {
+    return struct {
+        depth: u8 = 0,
+        cursor: cursor_type,
 
-//     if (mode === MODE_BACKTRACK) {
-//       let branchDepth;
-//       [bitset, byte, branchDepth] = branchStack.pop();
-//       for (; branchDepth < depth; depth--) {
-//         for (c of cursors) {
-//           c.pop();
-//         }
-//       }
-//       if (bitset === null) {
-//         break outer;
-//       } else {
-//         mode = MODE_BRANCH;
-//         continue outer;
-//       }
-//     }
-//   }
-// }
+        const padded_size = segments.len * segment_size;
+
+        pub const padding = blk: {
+            var g = ByteBitset.initFull();
+
+            var depth = 0;
+            for (segments) | s | {
+                const pad = segment_size - s;
+
+                depth += pad;
+
+                var j = pad;
+                while (j < segment_size):(j += 1) {
+                    g.unset(depth);
+                    depth += 1;
+                }
+            }
+
+            break :blk g;
+        };
+
+        pub fn init(cursor_to_pad: cursor_type) @This() {
+            return @This(){.cursor = cursor_to_pad};
+        }
+
+        // Interface API >>>
+
+        pub fn peek(self: *cursor_type) ?u8 {
+            if (padding.isSet(self.depth)) return 0;
+            return self.cursor.peek();
+        }
+
+        pub fn propose(self: *cursor_type, bitset: *ByteBitset) void {
+            if (padding.isSet(self.depth)) {
+                bitset.unsetAll();
+                bitset.set(0);
+            } else {
+                self.cursor.propose(bitset);
+            }
+        }
+
+        pub fn pop(self: *cursor_type) void {
+            self.depth -= 1;
+            if (padding.isUnset(self.depth)) {
+                self.cursor.pop();
+            }
+        }
+
+        pub fn push(self: *cursor_type, key_fragment: u8) void {
+            if (padding.isUnset(self.depth)) {
+                self.cursor.push(key_fragment);
+            }
+            self.depth += 1;
+        }
+
+        pub fn segmentCount(self: *cursor_type) u32 {
+            return self.cursor.segmentCount();
+        }
+
+        // <<< Interface API
+
+        pub fn iterate(self: *cursor_type) CursorIterator(padded_size) {
+            return CursorIterator(PaddedCursor, padded_size).init(self);
+        }
+    };
+}
 
 // test {
 //   NS([_]Attr{

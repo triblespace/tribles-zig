@@ -6,10 +6,13 @@ const Card = @import("Card.zig").Card;
 const MemInfo = @import("./MemInfo.zig").MemInfo;
 const cards = @import("./PACT/cards.zig");
 const hash = @import("./PACT/Hash.zig");
+const query = @import("./query.zig");
 const Hash = hash.Hash;
 const MinHash = hash.MinHash;
 
 const mem = std.mem;
+
+const CursorIterator = query.CursorIterator;
 
 pub fn init() void {
     hash.init();
@@ -915,23 +918,20 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+                result_set.unsetAll();
                 if (at_depth == self.branch_depth) {
-                    var child_set = ByteBitset.initEmpty();
                     for (self.body.bucket.slots) |slot| {
                         if (!slot.isNone()) {
-                            child_set.set(slot.peek(at_depth).?);
+                            result_set.set(slot.peek(at_depth).?);
                         }
                     }
-                    result_set.setIntersect(result_set, &child_set);
                     return;
                 }
 
                 if (self.peek(at_depth)) |byte_key| {
-                    result_set.singleIntersect(byte_key);
+                    result_set.set(byte_key);
                     return;
                 }
-
-                result_set.unsetAll();
             }
 
             pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -1187,16 +1187,15 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
                     if (at_depth == self.branch_depth) {
-                        result_set.setIntersect(result_set, &self.body.child_set);
-                        return;
-                    }
-
-                    if (self.peek(at_depth)) |byte_key| {
-                        result_set.singleIntersect(byte_key);
+                        result_set.* = self.body.child_set;
                         return;
                     }
 
                     result_set.unsetAll();
+                    if (self.peek(at_depth)) |byte_key| {
+                        result_set.set(byte_key);
+                        return;
+                    }
                 }
 
                 pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -1563,20 +1562,19 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+                    result_set.unsetAll();
                     if (at_depth == self.child_depth) {
                         // We know that the child has its range maxed out otherwise
                         // there wouldn't be a infix node, so this access is easy and
                         // also cheap.
-                        result_set.singleIntersect(self.body.child.peek(at_depth).?);
+                        result_set.set(self.body.child.peek(at_depth).?);
                         return;
                     }
 
                     if (self.peek(at_depth)) |byte_key| {
-                        result_set.singleIntersect(byte_key);
+                        result_set.set(byte_key);
                         return;
                     }
-
-                    result_set.unsetAll();
                 }
 
                 pub fn get(self: Head, at_depth: u8, key: u8) Node {
@@ -1741,12 +1739,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+                result_set.unsetAll();
                 if (self.peek(at_depth)) |byte_key| {
-                    result_set.singleIntersect(byte_key);
+                    result_set.set(byte_key);
                     return;
                 }
-
-                result_set.unsetAll();
             }
 
             pub fn get(self: Head, at_depth: u8, key: u8) Node {
@@ -1859,12 +1856,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+                result_set.unsetAll();
                 if (self.peek(at_depth)) |byte_key| {
-                    result_set.singleIntersect(byte_key);
+                    result_set.set(byte_key);
                     return;
                 }
-
-                result_set.unsetAll();
             }
 
             pub fn get(self: Head, at_depth: u8, key: u8) Node {
@@ -1941,7 +1937,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     }
 
                     var branches = &self.branch_state[branch_depth];
-                    branches.setAll();
                     node.propose(branch_depth, branches);
 
                     const branch_key = branches.drainNextAscending().?;
@@ -1960,141 +1955,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     iterator.path[0] = self.child;
                 }
                 return iterator;
-            }
-
-            fn CursorIterator(max_depth: u8) type {
-                return struct {
-                    branch_points: ByteBitset = ByteBitset.initEmpty(),
-                    key: [max_depth]u8 = [_]u8{0} ** max_depth,
-                    branch_state: [max_depth]ByteBitset = [_]ByteBitset{ByteBitset.initEmpty()} ** max_depth,
-                    mode: ExplorationMode = .path,
-                    depth: u8 = 0,
-                    cursor: Cursor,
-
-                    const ExplorationMode = enum { path, branch, backtrack };
-
-                    pub fn init(iterated_cursor: Cursor) @This() {
-                        return @This(){.cursor = iterated_cursor};
-                    }
-
-                    pub fn next(self: *@This()) ?[max_depth]u8 {
-                        outer: while (true) {
-                            switch (self.mode) {
-                                .path => {
-                                    while (self.depth < max_depth) {
-                                        if (self.cursor.peek()) |key_fragment| {
-                                            self.key[self.depth] = key_fragment;
-                                            self.cursor.push(key_fragment);
-                                            self.depth += 1;
-                                        } else {
-                                            self.branch_state[self.depth].setAll();
-                                            self.cursor.propose(&self.branch_state[self.depth]);
-                                            self.branch_points.set(self.depth);
-                                            self.mode = .branch;
-                                            continue :outer;
-                                        }
-                                    } else {
-                                        self.mode = .backtrack;
-                                        return self.key;
-                                    }
-                                },
-                                .branch => {
-                                    if(self.branch_state[self.depth].drainNextAscending()) |key_fragment| {
-                                        self.key[self.depth] = key_fragment;
-                                        self.cursor.push(key_fragment);
-                                        self.depth += 1;
-                                        self.mode = .path;
-                                        continue :outer;
-                                    } else {
-                                        self.branch_points.unset(self.depth);
-                                        self.mode = .backtrack;
-                                        continue :outer;
-                                    }
-                                },
-                                .backtrack => {
-                                    if(self.branch_points.findLastSet()) |parent_depth| {
-                                        while (parent_depth < self.depth) : (self.depth -= 1) self.cursor.pop();
-                                        self.mode = .branch;
-                                        continue :outer;
-                                    } else {
-                                        return null;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                };
-            }
-
-            pub fn PaddedCursor(comptime segment_size: u8) type {
-                return struct {
-                    depth: u8 = 0,
-                    cursor: Cursor,
-
-                    const padded_size = segments.len * segment_size;
-
-                    pub const padding = blk: {
-                        var g = ByteBitset.initFull();
-
-                        var depth = 0;
-                        for (segments) | s | {
-                            const pad = segment_size - s;
-
-                            depth += pad;
-
-                            var j = pad;
-                            while (j < segment_size):(j += 1) {
-                                g.unset(depth);
-                                depth += 1;
-                            }
-                        }
-
-                        break :blk g;
-                    };
-
-                    pub fn init(cursor_to_pad: Cursor) @This() {
-                        return @This(){.cursor = cursor_to_pad};
-                    }
-
-                    // Interface API >>>
-
-                    pub fn peek(self: *Cursor) ?u8 {
-                        if (padding.isSet(self.depth)) return 0;
-                        return self.cursor.peek();
-                    }
-
-                    pub fn propose(self: *Cursor, bitset: *ByteBitset) void {
-                        if (padding.isSet(self.depth)) {
-                            bitset.singleBitIntersect(0);
-                        } else {
-                            self.cursor.propose(bitset);
-                        }
-                    }
-
-                    pub fn pop(self: *Cursor) void {
-                        self.depth -= 1;
-                        if (padding.isUnset(self.depth)) {
-                            self.cursor.pop();
-                        }
-                    }
-
-                    pub fn push(self: *Cursor, key_fragment: u8) void {
-                        if (padding.isUnset(self.depth)) {
-                            self.cursor.push(key_fragment);
-                        }
-                        self.depth += 1;
-                    }
-
-                    pub fn segmentCount(self: *Cursor) u32 {
-                        return self.cursor.segmentCount();
-                    }
-
-                    // <<< Interface API
-
-                    pub fn iterate(self: *Cursor) CursorIterator(padded_size) {
-                        return CursorIterator(padded_size).init(self);
-                    }
-                };
             }
 
             pub const Cursor = struct {
@@ -2140,8 +2000,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     return self.path[self.depth];
                 }
 
-                pub fn iterate(self: Cursor) CursorIterator(key_length) {
-                    return CursorIterator(key_length).init(self);
+                pub fn iterate(self: Cursor) CursorIterator(Cursor, key_length) {
+                    return CursorIterator(Cursor, key_length).init(self);
                 }
             };
 
@@ -2232,9 +2092,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
                 if (depth == key_length) return true;
 
-                const left_childbits = ByteBitset.initFull();
-                const right_childbits = ByteBitset.initFull();
-                const intersect_childbits = ByteBitset.initEmpty();
+                const left_childbits: ByteBitset = undefined;
+                const right_childbits: ByteBitset = undefined;
+                const intersect_childbits: ByteBitset = undefined;
 
                 leftNode.propose(depth, &left_childbits);
                 rightNode.propose(depth, &right_childbits);
@@ -2276,10 +2136,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
                 if (depth == key_length) return true;
 
-                const intersect_childbits = ByteBitset.initFull();
+                const left_childbits: ByteBitset = undefined;
+                const right_childbits: ByteBitset = undefined;
+                const intersect_childbits: ByteBitset = undefined;
 
-                leftNode.propose(depth, intersect_childbits);
-                rightNode.propose(depth, intersect_childbits);
+                leftNode.propose(depth, &left_childbits);
+                rightNode.propose(depth, &right_childbits);
+
+                intersect_childbits.setIntersect(left_childbits, right_childbits);
 
                 while (intersect_childbits.drainNextAscending()) | index | {
                     const left_child = leftNode.get(depth, index);
@@ -2331,10 +2195,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 var union_childbits = ByteBitset.initEmpty(); // TODO use to allocate a better fitting branch node.
 
                 for (nodes) |node| {
-                    var node_childbits = ByteBitset.initFull();
+                    var node_childbits: ByteBitset = undefined;
                     node.propose(depth, &node_childbits);
                     union_childbits.setUnion(&union_childbits, &node_childbits);
-
                 }
 
                 var branch_node = @bitCast(Node, try BranchNodeBase.init(depth, prefix.*, allocator));
