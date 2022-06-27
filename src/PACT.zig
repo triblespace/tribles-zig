@@ -1319,7 +1319,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const base_size = (bucket_count == 1);
                     var use_rand_hash = false;
                     var entry = node;
-                    var attempts: u8 = 0;
+                    var attempts: usize = 0;
                     while (true) {
                         random = rand_lut[random ^ byte_key];
                         const bucket_index = hashByteKey(use_rand_hash, bucket_count, byte_key);
@@ -2163,7 +2163,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                        recursiveIsIntersecting(self.child, other.child, 0, undefined);
             }
 
-            fn recursiveUnion(comptime initial_node_count: u8, nodes: []Node, initial_depth: u8, prefix: *[key_length]u8, allocator: std.mem.Allocator) allocError!Node {
+            fn recursiveUnion(comptime initial_node_count: usize, nodes: []Node, initial_depth: u8, prefix: *[key_length]u8, allocator: std.mem.Allocator) allocError!Node {
                 const first_node = nodes[0];
                 const other_nodes = nodes[1..];
 
@@ -2229,9 +2229,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return branch_node;
             }
 
-            pub fn initUnion(comptime tree_count: u8, trees: []Tree, allocator: std.mem.Allocator) allocError!Tree {
+            pub fn initUnion(comptime tree_count: usize, trees: []Tree, allocator: std.mem.Allocator) allocError!Tree {
                 var children: [tree_count]Node = undefined;
-                var children_len: u8 = 0;
+                var children_len: usize = 0;
                 for (trees) |tree| {
                     const child = tree.child;
                     if(!child.isNone()) {

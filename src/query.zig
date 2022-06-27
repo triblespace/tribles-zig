@@ -96,12 +96,12 @@ pub fn PaddedCursor(comptime cursor_type: type, comptime segments: []const u8, c
 
         // Interface API >>>
 
-        pub fn peek(self: *cursor_type) ?u8 {
+        pub fn peek(self: *PaddedCursor) ?u8 {
             if (padding.isSet(self.depth)) return 0;
             return self.cursor.peek();
         }
 
-        pub fn propose(self: *cursor_type, bitset: *ByteBitset) void {
+        pub fn propose(self: *PaddedCursor, bitset: *ByteBitset) void {
             if (padding.isSet(self.depth)) {
                 bitset.unsetAll();
                 bitset.set(0);
@@ -110,28 +110,78 @@ pub fn PaddedCursor(comptime cursor_type: type, comptime segments: []const u8, c
             }
         }
 
-        pub fn pop(self: *cursor_type) void {
+        pub fn pop(self: *PaddedCursor) void {
             self.depth -= 1;
             if (padding.isUnset(self.depth)) {
                 self.cursor.pop();
             }
         }
 
-        pub fn push(self: *cursor_type, key_fragment: u8) void {
+        pub fn push(self: *PaddedCursor, key_fragment: u8) void {
             if (padding.isUnset(self.depth)) {
                 self.cursor.push(key_fragment);
             }
             self.depth += 1;
         }
 
-        pub fn segmentCount(self: *cursor_type) u32 {
+        pub fn segmentCount(self: *PaddedCursor) u32 {
             return self.cursor.segmentCount();
         }
 
         // <<< Interface API
 
-        pub fn iterate(self: *cursor_type) CursorIterator(padded_size) {
+        pub fn iterate(self: *cursor_type) CursorIterator(PaddedCursor, padded_size) {
             return CursorIterator(PaddedCursor, padded_size).init(self);
+        }
+    };
+}
+
+pub fn IntersectionCursor(comptime cursor_type: type, comptime key_size: u8) type {
+    return struct {
+        cursors: []cursor_type,
+
+        pub fn init(cursors: []cursor_type) @This() {
+            return @This(){.cursors = cursors};
+        }
+
+        // Interface API >>>
+
+        pub fn peek(self: *cursor_type) ?u8 {
+          var byte: ?u8 = null;
+
+          for (self.cursors) |cursor| {
+            if (cursor.peek()) | peeked| {
+                byte = byte orelse peeked;
+                if (byte != peeked) return null;
+            } else {
+                return null;
+            }
+          }
+        }
+
+        pub fn propose(self: *IntersectionCursor, bitset: *ByteBitset) void {
+            bitset.setAll();
+            for (self.cursors) |cursor| {
+                const proposed: ByteBitset = undefined;
+                cursor.propose(&proposed);
+                bitset.intersect(&bitset, &proposed);
+            }
+        }
+
+        pub fn pop(self: *IntersectionCursor) void {
+            for (self.cursors) |cursor| {
+                cursor.pop();
+            }
+        }
+
+        pub fn push(self: *IntersectionCursor, key_fragment: u8) void {
+            for (self.cursors) |cursor| {
+                cursor.push(key_fragment);
+            }
+        }
+
+        pub fn iterate(self: *IntersectionCursor) CursorIterator(IntersectionCursor, key_size) {
+            return CursorIterator(IntersectionCursor, key_size).init(self);
         }
     };
 }

@@ -12,7 +12,7 @@ const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 const commit = @import("./commit.zig");
 
 const sample_size: usize = 1;
-const data_size: usize = 1000000;
+const data_size: usize = 5000000;
 const change_prob = 0.5;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u64);
@@ -28,17 +28,13 @@ pub fn main() !void {
 }
 
 pub fn benchmark_tribleset_write() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
-    //defer _ = gp.deinit();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var set = TribleSet.init(arena.allocator());
+    var set = TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
@@ -66,18 +62,13 @@ pub fn benchmark_tribleset_write() !void {
 }
 
 pub fn benchmark_pact_write() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
-    //defer _ = gp.deinit();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(arena.allocator());
-    //var tree = PACT.Tree.init(gp.allocator());
+    var tree = PACT.Tree.init(std.heap.c_allocator);
     defer tree.deinit();
 
     std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
@@ -110,30 +101,23 @@ pub fn benchmark_pact_write() !void {
 
 }
 
-const union_tree_count = 10;
+const union_tree_count = 1000;
+const union_data_size = data_size / union_tree_count;
 
 pub fn benchmark_pact_union() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
-    //defer _ = gp.deinit();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    //var base_tree = PACT.Tree.init(arena.allocator());
-    //var tree = PACT.Tree.init(gp.allocator());
-    //defer base_tree.deinit();
-
     var trees: [union_tree_count]PACT.Tree = undefined;
     for( trees ) |*tree| {
-        tree.* = PACT.Tree.init(arena.allocator());
+        tree.* = PACT.Tree.init(std.heap.c_allocator);
 
         var i: u64 = 0;
         var t = Trible.initAribitrary(rnd);
-        while (i < data_size) : (i += 1) {
+        while (i < union_data_size) : (i += 1) {
             t = Trible.initAribitraryLike(rnd, change_prob, t);
             try tree.put(t.data, null);
         }
@@ -147,7 +131,7 @@ pub fn benchmark_pact_union() !void {
 
     timer.reset();
 
-    const union_tree = try PACT.Tree.initUnion(union_tree_count, trees[0..], arena.allocator());
+    const union_tree = try PACT.Tree.initUnion(union_tree_count, trees[0..], std.heap.c_allocator);
 
     t_total += timer.lap();
 
@@ -161,23 +145,15 @@ pub fn benchmark_pact_union() !void {
 const intersection_tree_count = 10;
 
 pub fn benchmark_pact_intersection() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
-    //defer _ = gp.deinit();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    //var base_tree = PACT.Tree.init(arena.allocator());
-    //var tree = PACT.Tree.init(gp.allocator());
-    //defer base_tree.deinit();
-
     var trees: [union_tree_count]PACT.Tree = undefined;
     for( trees ) |*tree| {
-        tree.* = PACT.Tree.init(arena.allocator());
+        tree.* = PACT.Tree.init(std.heap.c_allocator);
 
         var i: u64 = 0;
         var t = Trible.initAribitrary(rnd);
@@ -195,7 +171,7 @@ pub fn benchmark_pact_intersection() !void {
 
     timer.reset();
 
-    const intersection_tree = try PACT.Tree.initIntersection(intersection_tree_count, trees[0..], arena.allocator());
+    const intersection_tree = try PACT.Tree.initIntersection(intersection_tree_count, trees[0..], std.heap.c_allocator);
 
     t_total += timer.lap();
 
@@ -207,18 +183,13 @@ pub fn benchmark_pact_intersection() !void {
 }
 
 pub fn benchmark_pact_nodes_iterate() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
-    //defer _ = gp.deinit();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(arena.allocator());
-    //var tree = PACT.Tree.init(gp.allocator());
+    var tree = PACT.Tree.init(std.heap.c_allocator);
     defer tree.deinit();
 
     var t = Trible.initAribitrary(rnd);
@@ -247,18 +218,13 @@ pub fn benchmark_pact_nodes_iterate() !void {
 }
 
 pub fn benchmark_pact_cursor_iterate() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
-    //defer _ = gp.deinit();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(arena.allocator());
-    //var tree = PACT.Tree.init(gp.allocator());
+    var tree = PACT.Tree.init(std.heap.c_allocator);
     defer tree.deinit();
 
     var t = Trible.initAribitrary(rnd);
@@ -311,15 +277,13 @@ pub fn benchmark_hashing() !void {
 }
 
 pub fn benchmark_std() !void {
-    var general_purpose_allocator = std.heap.GeneralPurposeAllocator(.{}){};
-    const gpa = general_purpose_allocator.allocator();
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var map = std.hash_map.AutoHashMap(Trible, ?usize).init(gpa);
+    var map = std.hash_map.AutoHashMap(Trible, ?usize).init(std.heap.c_allocator);
     defer map.deinit();
 
     std.debug.print("Inserting {d} tribles into AutoHashMap.\n", .{data_size});
@@ -356,17 +320,12 @@ pub fn benchmark_std() !void {
 
 
 pub fn benchmark_commit() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
-    //var gp = std.heap.GeneralPurposeAllocator(.{}){};
-    //defer _ = gp.deinit();
-
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var set = TribleSet.init(arena.allocator());
+    var set = TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
@@ -396,7 +355,7 @@ pub fn benchmark_commit() !void {
     coz.begin("create_commit");
     timer.reset();
 
-    const com = try commit.Commit.initFromTribles(keypair, commit_id, set, arena.allocator());
+    const com = try commit.Commit.initFromTribles(keypair, commit_id, set, std.heap.c_allocator);
 
     t_total = timer.lap();
     coz.end("create_commit");
@@ -406,13 +365,13 @@ pub fn benchmark_commit() !void {
     coz.begin("load_commit");
 
     timer.reset();
-    var read_set = try com.toTriblesetSet(arena.allocator());
+    var read_set = try com.toTriblesetSet(std.heap.c_allocator);
     defer read_set.deinit();
 
     t_total = timer.lap();
     coz.end("load_commit");
 
-    try com.deinit(arena.allocator());
+    try com.deinit(std.heap.c_allocator);
 
     std.debug.print("Read commit for {d} triple in {d}ns\n", .{ read_set.count(), t_total });
 }
