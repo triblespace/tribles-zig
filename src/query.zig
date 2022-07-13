@@ -64,7 +64,8 @@ pub fn CursorIterator(comptime cursor_type: type, comptime max_depth: u8) type {
     };
 }
 
-pub fn PaddedCursor(comptime cursor_type: type, comptime segments: []const u8, comptime segment_size: u8) type {
+pub fn PaddedCursor(comptime cursor_type: type, comptime segment_size: u8) type {
+    const segments = cursor_type.segments;
     return struct {
         depth: u8 = 0,
         cursor: cursor_type,
@@ -96,12 +97,12 @@ pub fn PaddedCursor(comptime cursor_type: type, comptime segments: []const u8, c
 
         // Interface API >>>
 
-        pub fn peek(self: *PaddedCursor) ?u8 {
+        pub fn peek(self: *@This()) ?u8 {
             if (padding.isSet(self.depth)) return 0;
             return self.cursor.peek();
         }
 
-        pub fn propose(self: *PaddedCursor, bitset: *ByteBitset) void {
+        pub fn propose(self: *@This(), bitset: *ByteBitset) void {
             if (padding.isSet(self.depth)) {
                 bitset.unsetAll();
                 bitset.set(0);
@@ -110,28 +111,28 @@ pub fn PaddedCursor(comptime cursor_type: type, comptime segments: []const u8, c
             }
         }
 
-        pub fn pop(self: *PaddedCursor) void {
+        pub fn pop(self: *@This()) void {
             self.depth -= 1;
             if (padding.isUnset(self.depth)) {
                 self.cursor.pop();
             }
         }
 
-        pub fn push(self: *PaddedCursor, key_fragment: u8) void {
+        pub fn push(self: *@This(), key_fragment: u8) void {
             if (padding.isUnset(self.depth)) {
                 self.cursor.push(key_fragment);
             }
             self.depth += 1;
         }
 
-        pub fn segmentCount(self: *PaddedCursor) u32 {
+        pub fn segmentCount(self: *@This()) u32 {
             return self.cursor.segmentCount();
         }
 
         // <<< Interface API
 
-        pub fn iterate(self: *cursor_type) CursorIterator(PaddedCursor, padded_size) {
-            return CursorIterator(PaddedCursor, padded_size).init(self);
+        pub fn iterate(self: *cursor_type) CursorIterator(@This(), padded_size) {
+            return CursorIterator(@This(), padded_size).init(self);
         }
     };
 }
@@ -146,7 +147,7 @@ pub fn IntersectionCursor(comptime cursor_type: type, comptime key_size: u8) typ
 
         // Interface API >>>
 
-        pub fn peek(self: *cursor_type) ?u8 {
+        pub fn peek(self: *@This()) ?u8 {
           var byte: ?u8 = null;
 
           for (self.cursors) |cursor| {
@@ -159,7 +160,7 @@ pub fn IntersectionCursor(comptime cursor_type: type, comptime key_size: u8) typ
           }
         }
 
-        pub fn propose(self: *IntersectionCursor, bitset: *ByteBitset) void {
+        pub fn propose(self: *@This(), bitset: *ByteBitset) void {
             bitset.setAll();
             for (self.cursors) |cursor| {
                 const proposed: ByteBitset = undefined;
@@ -168,48 +169,73 @@ pub fn IntersectionCursor(comptime cursor_type: type, comptime key_size: u8) typ
             }
         }
 
-        pub fn pop(self: *IntersectionCursor) void {
+        pub fn pop(self: *@This()) void {
             for (self.cursors) |cursor| {
                 cursor.pop();
             }
         }
 
-        pub fn push(self: *IntersectionCursor, key_fragment: u8) void {
+        pub fn push(self: *@This(), key_fragment: u8) void {
             for (self.cursors) |cursor| {
                 cursor.push(key_fragment);
             }
         }
 
-        pub fn iterate(self: *IntersectionCursor) CursorIterator(IntersectionCursor, key_size) {
-            return CursorIterator(IntersectionCursor, key_size).init(self);
+        pub fn iterate(self: *@This()) CursorIterator(@This(), key_size) {
+            return CursorIterator(@This(), key_size).init(self);
         }
     };
 }
 
-// test {
-//   NS([_]Attr{
-//     .{.id = "", .type = u64},
-//     .{}
-//   })
-//   Query(.{})
-//   find(({ name, title }) => [
-//       ,
-//     ]).run()
+const ConstraintInterface = struct {
+    impl: *anyopaque,
 
-//   knightsNS.find(.{v(.name), v(.title)}).in(knightskb.where(.{.{ .name = v(.name), .titles = .{v(.title)} }}))
-//   kb.pull(id, T)
-//   kb.walk(id).get(.name)
-// }
+    peekByteFn: fn (*anyopaque) ?u8,
+    proposeByteFn: fn (*anyopaque, *ByteBitset) void,
+    pushByteFn: fn (*anyopaque, u8) void,
+    popByteFn: fn (*anyopaque) void,
 
-// fn myQuery(variable) anytype {
-//  return .{
+    proposeVariableFn: fn (*anyopaque, *ByteBitset) void,
+    pushVariableFn: fn (*anyopaque, u8) bool,
+    popVariableFn: fn (*anyopaque) void,
+    countVariableFn: fn (*anyopaque, u8) usize,
+    sampleVariableFn: fn (*anyopaque, u8) usize,
 
-//  }
-// }
+    // Interface API >>>
 
-// struct {
-//   field: Value(Int)
-//   field2: Entity(User)
-// }
+    pub fn peekByte(self: *@This()) ?u8 {
+    }
 
-// Partial(T){}
+    pub fn proposeByte(self: *@This(), bitset: *ByteBitset) void {
+    }
+
+    pub fn pushByte(self: *@This(), key_fragment: u8) void {
+    }
+
+    pub fn popByte(self: *@This()) void {
+    }
+
+    pub fn proposeVariable(self: *@This(), bitset: *ByteBitset) void {
+    }
+
+    pub fn pushVariable(self: *@This(), variable: u8) bool {
+    }
+    
+    pub fn popVariable(self: *@This()) bool {
+    }
+
+    pub fn countVariable(self: *@This(), variable: u8) usize {
+    }
+
+    pub fn sampleVariable(self: *@This(), variable: u8) usize {
+    }
+};
+
+// var v = vars(bookNS);
+// const loveQuery = find(v('name'), v('title')).with(v('r'))
+//     .in(KB.from('characters')
+//         .where(v('r'), v.ns('name'), v('name'))
+//         .where(v('r'), v.ns('loves'), v('j'))
+//         .where(v('j'), v.ns('name'), "juliet")
+//         .where(v('j'), v.ns('title'), v('title')))
+//     .in(ns.constants());

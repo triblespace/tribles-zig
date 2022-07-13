@@ -173,8 +173,8 @@ const NodeTag = enum(u8) {
 };
 
 pub fn PACT(comptime segments: []const u8, T: type) type {
-
     return struct {
+        pub const segments = segments;
         pub const key_length = blk: {
             var segment_sum = 0;
             for (segments) |segment| {

@@ -3,11 +3,11 @@ const std = @import("std");
 const UFOID = @import("UFOID.zig").UFOID;
 
 pub const Trible = extern struct {
-    pub const size_e = 16;
-    pub const size_a = 16;
-    pub const size_v = 32;
+    pub const e_len = 16;
+    pub const a_len = 16;
+    pub const v_len = 32;
 
-    pub const size = size_e + size_a + size_v;
+    pub const size = e_len + a_len + v_len;
     data: [size]u8,
 
     const Ordering = enum { eav, eva, aev, ave, vea, vae };

@@ -12,8 +12,8 @@ const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 const commit = @import("./commit.zig");
 
 const sample_size: usize = 1;
-const data_size: usize = 5000000;
-const change_prob = 0.5;
+const data_size: usize = 50000000;
+const change_prob = 0.01;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u64);
 
