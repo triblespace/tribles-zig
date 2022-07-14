@@ -45,23 +45,23 @@ pub const TribleSet = struct {
             return switch(self.state) {
                 .stack_empty => unreachable,
 
-                .stack_e => eavCursor.peek(),
-                .stack_a => aevCursor.peek(),
-                .stack_v => veaCursor.peek(),
+                .stack_e => self.eavCursor.peek(),
+                .stack_a => self.aevCursor.peek(),
+                .stack_v => self.veaCursor.peek(),
 
-                .stack_ea => eavCursor.peek(),
-                .stack_ev => evaCursor.peek(),
-                .stack_ae => aevCursor.peek(),
-                .stack_av => aveCursor.peek(),
-                .stack_ve => veaCursor.peek(),
-                .stack_va => vaeCursor.peek(),
+                .stack_ea => self.eavCursor.peek(),
+                .stack_ev => self.evaCursor.peek(),
+                .stack_ae => self.aevCursor.peek(),
+                .stack_av => self.aveCursor.peek(),
+                .stack_ve => self.veaCursor.peek(),
+                .stack_va => self.vaeCursor.peek(),
 
-                .stack_eav => eavCursor.peek(),
-                .stack_eva => evaCursor.peek(),
-                .stack_aev => aevCursor.peek(),
-                .stack_ave => aveCursor.peek(),
-                .stack_vea => veaCursor.peek(),
-                .stack_vae => vaeCursor.peek(),
+                .stack_eav => self.eavCursor.peek(),
+                .stack_eva => self.evaCursor.peek(),
+                .stack_aev => self.aevCursor.peek(),
+                .stack_ave => self.aveCursor.peek(),
+                .stack_vea => self.veaCursor.peek(),
+                .stack_vae => self.vaeCursor.peek(),
             };
         }
 
@@ -69,23 +69,23 @@ pub const TribleSet = struct {
             switch(self.state) {
                 .stack_empty => unreachable,
 
-                .stack_e => eavCursor.propose(bitset),
-                .stack_a => aevCursor.propose(bitset),
-                .stack_v => veaCursor.propose(bitset),
+                .stack_e => self.eavCursor.propose(bitset),
+                .stack_a => self.aevCursor.propose(bitset),
+                .stack_v => self.veaCursor.propose(bitset),
 
-                .stack_ea => eavCursor.propose(bitset),
-                .stack_ev => evaCursor.propose(bitset),
-                .stack_ae => aevCursor.propose(bitset),
-                .stack_av => aveCursor.propose(bitset),
-                .stack_ve => veaCursor.propose(bitset),
-                .stack_va => vaeCursor.propose(bitset),
+                .stack_ea => self.eavCursor.propose(bitset),
+                .stack_ev => self.evaCursor.propose(bitset),
+                .stack_ae => self.aevCursor.propose(bitset),
+                .stack_av => self.aveCursor.propose(bitset),
+                .stack_ve => self.veaCursor.propose(bitset),
+                .stack_va => self.vaeCursor.propose(bitset),
 
-                .stack_eav => eavCursor.propose(bitset),
-                .stack_eva => evaCursor.propose(bitset),
-                .stack_aev => aevCursor.propose(bitset),
-                .stack_ave => aveCursor.propose(bitset),
-                .stack_vea => veaCursor.propose(bitset),
-                .stack_vae => vaeCursor.propose(bitset),
+                .stack_eav => self.eavCursor.propose(bitset),
+                .stack_eva => self.evaCursor.propose(bitset),
+                .stack_aev => self.aevCursor.propose(bitset),
+                .stack_ave => self.aveCursor.propose(bitset),
+                .stack_vea => self.veaCursor.propose(bitset),
+                .stack_vae => self.vaeCursor.propose(bitset),
             };
         }
 
@@ -93,23 +93,32 @@ pub const TribleSet = struct {
             switch(self.state) {
                 .stack_empty => unreachable,
 
-                .stack_e => eavCursor.push(key_fragment),
-                .stack_a => aevCursor.push(key_fragment),
-                .stack_v => veaCursor.push(key_fragment),
+                .stack_e => {
+                    self.eavCursor.push(key_fragment);
+                    self.evaCursor.push(key_fragment);
+                },
+                .stack_a => {
+                    self.aevCursor.push(key_fragment);
+                    self.aveCursor.push(key_fragment);
+                },
+                .stack_v => {
+                    self.veaCursor.push(key_fragment);
+                    self.vaeCursor.push(key_fragment);
+                },
 
-                .stack_ea => eavCursor.push(key_fragment),
-                .stack_ev => evaCursor.push(key_fragment),
-                .stack_ae => aevCursor.push(key_fragment),
-                .stack_av => aveCursor.push(key_fragment),
-                .stack_ve => veaCursor.push(key_fragment),
-                .stack_va => vaeCursor.push(key_fragment),
+                .stack_ea => self.eavCursor.push(key_fragment),
+                .stack_ev => self.evaCursor.push(key_fragment),
+                .stack_ae => self.aevCursor.push(key_fragment),
+                .stack_av => self.aveCursor.push(key_fragment),
+                .stack_ve => self.veaCursor.push(key_fragment),
+                .stack_va => self.vaeCursor.push(key_fragment),
 
-                .stack_eav => eavCursor.push(key_fragment),
-                .stack_eva => evaCursor.push(key_fragment),
-                .stack_aev => aevCursor.push(key_fragment),
-                .stack_ave => aveCursor.push(key_fragment),
-                .stack_vea => veaCursor.push(key_fragment),
-                .stack_vae => vaeCursor.push(key_fragment),
+                .stack_eav => self.eavCursor.push(key_fragment),
+                .stack_eva => self.evaCursor.push(key_fragment),
+                .stack_aev => self.aevCursor.push(key_fragment),
+                .stack_ave => self.aveCursor.push(key_fragment),
+                .stack_vea => self.veaCursor.push(key_fragment),
+                .stack_vae => self.vaeCursor.push(key_fragment),
             };
         }
 
@@ -117,58 +126,40 @@ pub const TribleSet = struct {
             switch(self.state) {
                 .stack_empty => unreachable,
 
-                .stack_e => eavCursor.pop(),
-                .stack_a => aevCursor.pop(),
-                .stack_v => veaCursor.pop(),
+                .stack_e => {
+                    self.eavCursor.pop();
+                    self.evaCursor.pop();
+                },
+                .stack_a => {
+                    self.aevCursor.pop();
+                    self.aveCursor.pop();
+                },
+                .stack_v => {
+                    self.veaCursor.pop();
+                    self.vaeCursor.pop();
+                },
 
-                .stack_ea => eavCursor.pop(),
-                .stack_ev => evaCursor.pop(),
-                .stack_ae => aevCursor.pop(),
-                .stack_av => aveCursor.pop(),
-                .stack_ve => veaCursor.pop(),
-                .stack_va => vaeCursor.pop(),
+                .stack_ea => self.eavCursor.pop(),
+                .stack_ev => self.evaCursor.pop(),
+                .stack_ae => self.aevCursor.pop(),
+                .stack_av => self.aveCursor.pop(),
+                .stack_ve => self.veaCursor.pop(),
+                .stack_va => self.vaeCursor.pop(),
 
-                .stack_eav => eavCursor.pop(),
-                .stack_eva => evaCursor.pop(),
-                .stack_aev => aevCursor.pop(),
-                .stack_ave => aveCursor.pop(),
-                .stack_vea => veaCursor.pop(),
-                .stack_vae => vaeCursor.pop(),
+                .stack_eav => self.eavCursor.pop(),
+                .stack_eva => self.evaCursor.pop(),
+                .stack_aev => self.aevCursor.pop(),
+                .stack_ave => self.aveCursor.pop(),
+                .stack_vea => self.veaCursor.pop(),
+                .stack_vae => self.vaeCursor.pop(),
             }
         }
 
-        pub fn proposeVariable(self: *@This(), bitset: *ByteBitset) void {
+        pub fn variables(self: *@This(), bitset: *ByteBitset) void {
             bitset.unsetAll();
-
-            switch(self.state) {
-                .stack_empty => {
-                    bitset.set(self.eVar);
-                    bitset.set(self.aVar);
-                    bitset.set(self.vVar);
-                },
-
-                .stack_e => {
-                    bitset.set(self.aVar);
-                    bitset.set(self.vVar);
-                },
-                .stack_a => {
-                    bitset.set(self.eVar);
-                    bitset.set(self.vVar);
-                },
-                .stack_v => {
-                    bitset.set(self.eVar);
-                    bitset.set(self.aVar);
-                },
-
-                .stack_ea => bitset.set(self.vVar),
-                .stack_ev => bitset.set(self.aVar),
-                .stack_ae => bitset.set(self.vVar),
-                .stack_av => bitset.set(self.eVar),
-                .stack_ve => bitset.set(self.aVar),
-                .stack_va => bitset.set(self.eVar),
-
-                else => return,
-            }
+            bitset.set(self.eVar);
+            bitset.set(self.aVar);
+            bitset.set(self.vVar);
         }
 
         pub fn pushVariable(self: *@This(), variable: u8) bool {
@@ -221,29 +212,29 @@ pub const TribleSet = struct {
             switch(self.state) {
                 .stack_empty => unreachable,
 
-                .stack_e =>   stack_empty,
-                .stack_a =>   stack_empty,
-                .stack_v =>   stack_empty,
+                .stack_e =>   .stack_empty,
+                .stack_a =>   .stack_empty,
+                .stack_v =>   .stack_empty,
 
-                .stack_ea =>  stack_e,
-                .stack_ev =>  stack_e,
-                .stack_ae =>  stack_a,
-                .stack_av =>  stack_a,
-                .stack_ve =>  stack_v,
-                .stack_va =>  stack_v,
+                .stack_ea =>  .stack_e,
+                .stack_ev =>  .stack_e,
+                .stack_ae =>  .stack_a,
+                .stack_av =>  .stack_a,
+                .stack_ve =>  .stack_v,
+                .stack_va =>  .stack_v,
 
-                .stack_eav => stack_ea,
-                .stack_eva => stack_ev,
-                .stack_aev => stack_ae,
-                .stack_ave => stack_av,
-                .stack_vea => stack_ve,
-                .stack_vae => stack_va,
+                .stack_eav => .stack_ea,
+                .stack_eva => .stack_ev,
+                .stack_aev => .stack_ae,
+                .stack_ave => .stack_av,
+                .stack_vea => .stack_ve,
+                .stack_vae => .stack_va,
             }
         }
 
         pub fn countVariable(self: *@This(), variable: u8) usize {
             if(self.eVar == variable) {
-                self.state = switch(self.state) {
+                return switch(self.state) {
                     .stack_empty => self.eavCursor.segmentCount(),
 
                     .stack_a => self.aevCursor.segmentCount(),
@@ -254,10 +245,9 @@ pub const TribleSet = struct {
 
                     else => unreachable,
                 }
-                return;
             }
             if(self.aVar == variable) {
-                self.state = switch(self.state) {
+                return switch(self.state) {
                     .stack_empty => self.aevCursor.segmentCount(),
 
                     .stack_e => self.eavCursor.segmentCount(),
@@ -268,10 +258,9 @@ pub const TribleSet = struct {
 
                     else => unreachable,
                 }
-                return;
             }
             if(self.vVar == variable) {
-                self.state = switch(self.state) {
+                return switch(self.state) {
                     .stack_empty => self.veaCursor.segmentCount(),
 
                     .stack_e => self.evaCursor.segmentCount(),
@@ -282,13 +271,12 @@ pub const TribleSet = struct {
 
                     else => unreachable,
                 }
-                return;
             }
         }
 
         pub fn sampleVariable(self: *@This(), variable: u8) usize {
             if(self.eVar == variable) {
-                self.state = switch(self.state) {
+                return switch(self.state) {
                     .stack_empty => self.eavCursor.minhash(),
 
                     .stack_a => self.aevCursor.minhash(),
@@ -299,10 +287,9 @@ pub const TribleSet = struct {
 
                     else => unreachable,
                 }
-                return;
             }
             if(self.aVar == variable) {
-                self.state = switch(self.state) {
+                return switch(self.state) {
                     .stack_empty => self.aevCursor.minhash(),
 
                     .stack_e => self.eavCursor.minhash(),
@@ -313,10 +300,9 @@ pub const TribleSet = struct {
 
                     else => unreachable,
                 }
-                return;
             }
             if(self.vVar == variable) {
-                self.state = switch(self.state) {
+                return switch(self.state) {
                     .stack_empty => self.veaCursor.minhash(),
 
                     .stack_e => self.evaCursor.minhash(),
@@ -327,7 +313,6 @@ pub const TribleSet = struct {
 
                     else => unreachable,
                 }
-                return;
             }
         }
     };

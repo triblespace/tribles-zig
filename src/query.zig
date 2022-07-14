@@ -215,7 +215,7 @@ const ConstraintInterface = struct {
     pub fn popByte(self: *@This()) void {
     }
 
-    pub fn proposeVariable(self: *@This(), bitset: *ByteBitset) void {
+    pub fn variables(self: *@This(), bitset: *ByteBitset) void {
     }
 
     pub fn pushVariable(self: *@This(), variable: u8) bool {
@@ -231,11 +231,16 @@ const ConstraintInterface = struct {
     }
 };
 
-// var v = vars(bookNS);
-// const loveQuery = find(v('name'), v('title')).with(v('r'))
-//     .in(KB.from('characters')
-//         .where(v('r'), v.ns('name'), v('name'))
-//         .where(v('r'), v.ns('loves'), v('j'))
-//         .where(v('j'), v.ns('name'), "juliet")
-//         .where(v('j'), v.ns('title'), v('title')))
-//     .in(ns.constants());
+
+
+// var v = vars();
+// const loveQuery = query('r', 'characters').find(v('name'), v('title'))
+//     .in(KB.from('characters').where(.{
+//         .{v('r'), ns(v, 'name'), v('name')},
+//         .{v('r'), ns(v, 'loves'), v('j')},
+//         ns.loves(v('r'), v('j')),
+//         ns.name(v('j'), 'juliet'),
+//         .{v('j'), ns(v, 'title'), v('title')}}))
+//     .in(v());
+//
+// loveQuery.run(.{.characters = characterKB}, .{.r = "Romeo"})
