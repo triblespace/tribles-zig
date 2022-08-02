@@ -2521,3 +2521,76 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 //     }
 //     try expectEqual(tree.count(), total_runs);
 // }
+
+pub fn PaddedCursor(comptime cursor_type: type, comptime segment_size: u8) type {
+    const segments = cursor_type.segments;
+    return struct {
+        depth: u8 = 0,
+        cursor: cursor_type,
+
+        const padded_size = segments.len * segment_size;
+
+        pub const padding = blk: {
+            var g = ByteBitset.initFull();
+
+            var depth = 0;
+            for (segments) | s | {
+                const pad = segment_size - s;
+
+                depth += pad;
+
+                var j = pad;
+                while (j < segment_size):(j += 1) {
+                    g.unset(depth);
+                    depth += 1;
+                }
+            }
+
+            break :blk g;
+        };
+
+        pub fn init(cursor_to_pad: cursor_type) @This() {
+            return @This(){.cursor = cursor_to_pad};
+        }
+
+        // Interface API >>>
+
+        pub fn peek(self: *@This()) ?u8 {
+            if (padding.isSet(self.depth)) return 0;
+            return self.cursor.peek();
+        }
+
+        pub fn propose(self: *@This(), bitset: *ByteBitset) void {
+            if (padding.isSet(self.depth)) {
+                bitset.unsetAll();
+                bitset.set(0);
+            } else {
+                self.cursor.propose(bitset);
+            }
+        }
+
+        pub fn pop(self: *@This()) void {
+            self.depth -= 1;
+            if (padding.isUnset(self.depth)) {
+                self.cursor.pop();
+            }
+        }
+
+        pub fn push(self: *@This(), key_fragment: u8) void {
+            if (padding.isUnset(self.depth)) {
+                self.cursor.push(key_fragment);
+            }
+            self.depth += 1;
+        }
+
+        pub fn segmentCount(self: *@This()) u32 {
+            return self.cursor.segmentCount();
+        }
+
+        // <<< Interface API
+
+        pub fn iterate(self: *cursor_type) CursorIterator(@This(), padded_size) {
+            return CursorIterator(@This(), padded_size).init(self);
+        }
+    };
+}

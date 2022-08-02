@@ -2,6 +2,7 @@ const std = @import("std");
 const PACT = @import("./PACT.zig").PACT;
 const MemInfo = @import("./MemInfo.zig").MemInfo;
 const Trible = @import("./Trible.zig").Trible;
+const Constraint = @import("Constraint.zig");
 const mem = std.mem;
 const allocError = std.mem.Allocator.Error;
 
@@ -40,6 +41,12 @@ pub const TribleSet = struct {
         aveCursor: PaddedCursor(AVEIndex.Cursor, 32),
         veaCursor: PaddedCursor(VEAIndex.Cursor, 32),
         vaeCursor: PaddedCursor(VAEIndex.Cursor, 32),
+
+        pub fn constraint(self: *@This()) Constraint {
+            return Constraint.init(self,
+                peekByte, proposeByte, pushByte, popByte,
+                variables, pushVariable, popVariable, countVariable);
+        }
 
         pub fn peekByte(self: *@This()) ?u8 {
             return switch(self.state) {
@@ -359,6 +366,11 @@ pub const TribleSet = struct {
         try self.ave.put(trible.ordered(.ave), null);
         try self.vea.put(trible.ordered(.vea), null);
         try self.vae.put(trible.ordered(.vae), null);
+    }
+
+    pub fn patternConstraint(pattern: [][3]u8) Constraint {
+        const 
+        return new IntersectionConstraint(triples.map(([e,a,v]) => new MemTribleConstraint(this, e, a, v)));
     }
 
     pub fn mem_info(self: *TribleSet) MemInfo {
