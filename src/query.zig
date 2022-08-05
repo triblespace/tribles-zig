@@ -65,14 +65,14 @@ pub fn VariableIterator(comptime cursor_type: type, comptime max_depth: u8) type
     };
 }
 
-pub fn IntersectionConstraint(comptime constraint_count: usize, comptime key_size: u8) type {
+pub fn IntersectionConstraint(comptime ConstraintsType: type) type {
     return struct {
-        constraints: [constraint_count]ConstraintInterface,
+        constraints: ConstraintsType,
         activeConstraints: ByteBitset = ByteBitset.initEmpty(),
         variableStack: [256]u8 = [_]u8{0} ** 256,
         variableStackLen: u8 = 0,
 
-        pub fn init(constraints: []ConstraintInterface) @This() {
+        pub fn init(constraints: ConstraintsType) @This() {
             return @This(){.constraints = constraints};
         }
 
