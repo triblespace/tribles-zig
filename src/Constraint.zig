@@ -1,4 +1,6 @@
 const std = @import("std");
+const assert = std.debug.assert;
+
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 
 ptr: *anyopaque,
@@ -17,13 +19,14 @@ const VTable = struct {
     popVariableFn: fn (*anyopaque) void,
     countVariableFn: fn (*anyopaque, u8) usize,
     //sampleVariableFn: fn (*anyopaque, u8) usize,
-}
+};
 
 pub fn init(
 pointer: anytype,
 comptime peekByteFn: fn (@TypeOf(pointer)) ?u8,
 comptime proposeByteFn: fn (@TypeOf(pointer), *ByteBitset) void,
 comptime pushByteFn: fn (@TypeOf(pointer), u8) void,
+comptime popByteFn: fn (@TypeOf(pointer)) void,
 comptime variablesFn: fn (@TypeOf(pointer), *ByteBitset) void,
 comptime pushVariableFn: fn (@TypeOf(pointer), u8) void,
 comptime popVariableFn: fn (@TypeOf(pointer)) void,
@@ -47,7 +50,7 @@ comptime countVariableFn: fn (@TypeOf(pointer), u8) usize,
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             @call(.{ .modifier = .always_inline }, proposeByteFn, .{ self, bitset });
         }
-        fn pushByteImpl(ptr: *anyopaque, u8: key_fragment) void {
+        fn pushByteImpl(ptr: *anyopaque, key_fragment: u8) void {
             const self = @ptrCast(Ptr, @alignCast(alignment, ptr));
             @call(.{ .modifier = .always_inline }, pushByteFn, .{ self, key_fragment });
         }

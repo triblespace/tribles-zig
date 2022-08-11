@@ -1,3 +1,5 @@
+const clap = @import("./deps/zig-clap/clap.zig");
+
 const std = @import("std");
 const testing = std.testing;
 const time = std.time;
@@ -12,16 +14,37 @@ const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 const commit = @import("./commit.zig");
 
 const sample_size: usize = 1;
-const data_size: usize = 50000000;
+var data_size: usize = 1000;
 const change_prob = 0.01;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u64);
 
 pub fn main() !void {
+    const params = comptime [_]clap.Param(clap.Help){
+        clap.parseParam("-n, --number <NUM>     An option parameter, which takes a value.") catch unreachable,
+    };
+
+    var iter = try clap.args.OsIterator.init(std.heap.c_allocator);
+    defer iter.deinit();
+
+    var diag = clap.Diagnostic{};
+    var args = clap.parseEx(clap.Help, &params, &iter, .{
+        .allocator = std.heap.c_allocator,
+        .diagnostic = &diag,
+    }) catch |err| {
+        // Report useful error and exit
+        diag.report(std.io.getStdErr().writer(), err) catch {};
+        return err;
+    };
+    defer args.deinit();
+
+    if (args.option("--number")) |n|
+        data_size = std.fmt.parseInt(usize, n, 10) catch @panic("Bad args.");
+    
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_commit();
+        try benchmark_tribleset_write();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -68,7 +91,7 @@ pub fn benchmark_pact_write() !void {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(std.heap.c_allocator);
+    var tree = PACT.Tree.init();
     defer tree.deinit();
 
     std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
@@ -83,7 +106,7 @@ pub fn benchmark_pact_write() !void {
 
         timer.reset();
 
-        try tree.put(t.data, null);
+        try tree.put(t.data, null, std.heap.c_allocator);
         coz.progress("put");
 
         t_total += timer.lap();
@@ -113,13 +136,13 @@ pub fn benchmark_pact_union() !void {
 
     var trees: [union_tree_count]PACT.Tree = undefined;
     for( trees ) |*tree| {
-        tree.* = PACT.Tree.init(std.heap.c_allocator);
+        tree.* = PACT.Tree.init();
 
         var i: u64 = 0;
         var t = Trible.initAribitrary(rnd);
         while (i < union_data_size) : (i += 1) {
             t = Trible.initAribitraryLike(rnd, change_prob, t);
-            try tree.put(t.data, null);
+            try tree.put(t.data, null, std.heap.c_allocator);
         }
     }
 
@@ -153,13 +176,13 @@ pub fn benchmark_pact_intersection() !void {
 
     var trees: [union_tree_count]PACT.Tree = undefined;
     for( trees ) |*tree| {
-        tree.* = PACT.Tree.init(std.heap.c_allocator);
+        tree.* = PACT.Tree.init();
 
         var i: u64 = 0;
         var t = Trible.initAribitrary(rnd);
         while (i < data_size) : (i += 1) {
             t = Trible.initAribitraryLike(rnd, change_prob, t);
-            try tree.put(t.data, null);
+            try tree.put(t.data, null, std.heap.c_allocator);
         }
     }
 
@@ -189,7 +212,7 @@ pub fn benchmark_pact_nodes_iterate() !void {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(std.heap.c_allocator);
+    var tree = PACT.Tree.init();
     defer tree.deinit();
 
     var t = Trible.initAribitrary(rnd);
@@ -197,7 +220,7 @@ pub fn benchmark_pact_nodes_iterate() !void {
     var i: u64 = 0;
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
-        try tree.put(t.data, null);
+        try tree.put(t.data, null, std.heap.c_allocator);
 
     }
 
@@ -224,7 +247,7 @@ pub fn benchmark_pact_cursor_iterate() !void {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var tree = PACT.Tree.init(std.heap.c_allocator);
+    var tree = PACT.Tree.init();
     defer tree.deinit();
 
     var t = Trible.initAribitrary(rnd);
@@ -232,7 +255,7 @@ pub fn benchmark_pact_cursor_iterate() !void {
     var i: u64 = 0;
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
-        try tree.put(t.data, null);
+        try tree.put(t.data, null, std.heap.c_allocator);
 
     }
 

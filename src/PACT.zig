@@ -1899,7 +1899,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
         pub const Tree = struct {
             child: Node = Node{ .none = .{} },
-            allocator: std.mem.Allocator,
 
             const NodeIterator = struct {
                 start_points: ByteBitset = ByteBitset.initEmpty(),
@@ -2009,16 +2008,16 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return Cursor.init(self);
             }
 
-            pub fn init(allocator: std.mem.Allocator) Tree {
-                return Tree{ .allocator = allocator };
+            pub fn init() Tree {
+                return Tree{};
             }
 
-            pub fn deinit(self: *Tree) void {
-                self.child.rel(self.allocator);
+            pub fn deinit(self: *Tree, allocator: std.mem.Allocator) void {
+                self.child.rel(allocator);
             }
 
-            pub fn fork(self: *Tree) allocError!Tree {
-                return Tree{ .child = (try self.child.ref(self.allocator)) orelse self.child, .allocator = self.allocator };
+            pub fn fork(self: *Tree, allocator: std.mem.Allocator) allocError!Tree {
+                return Tree{ .child = (try self.child.ref(allocator)) orelse self.child };
             }
 
             pub fn format(
@@ -2041,11 +2040,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return self.child.count();
             }
 
-            pub fn put(self: *Tree, key: [key_length]u8, value: ?T) allocError!void {
+            pub fn put(self: *Tree, key: [key_length]u8, value: ?T, allocator: std.mem.Allocator) allocError!void {
                 if (self.child.isNone()) {
-                    self.child = try WrapInfixNode(0, key, InitLeafOrTwigNode(key, value), self.allocator);
+                    self.child = try WrapInfixNode(0, key, InitLeafOrTwigNode(key, value), allocator);
                 } else {
-                    self.child = try self.child.put(0, key, value, true, self.allocator);
+                    self.child = try self.child.put(0, key, value, true, allocator);
                 }
             }
             

@@ -2,7 +2,7 @@ const std = @import("std");
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 const Constraint = @import("Constraint.zig");
 
-pub fn VariableIterator(comptime cursor_type: type, comptime max_depth: u8) type {
+pub fn CursorIterator(comptime cursor_type: type, comptime max_depth: u8) type {
     return struct {
         branch_points: ByteBitset = ByteBitset.initEmpty(),
         key: [max_depth]u8 = [_]u8{0} ** max_depth,
@@ -65,121 +65,121 @@ pub fn VariableIterator(comptime cursor_type: type, comptime max_depth: u8) type
     };
 }
 
-pub fn IntersectionConstraint(comptime ConstraintsType: type) type {
-    return struct {
-        constraints: ConstraintsType,
-        activeConstraints: ByteBitset = ByteBitset.initEmpty(),
-        variableStack: [256]u8 = [_]u8{0} ** 256,
-        variableStackLen: u8 = 0,
+// pub fn IntersectionConstraint(comptime ConstraintsType: type) type {
+//     return struct {
+//         constraints: ConstraintsType,
+//         activeConstraints: ByteBitset = ByteBitset.initEmpty(),
+//         variableStack: [256]u8 = [_]u8{0} ** 256,
+//         variableStackLen: u8 = 0,
 
-        pub fn init(constraints: ConstraintsType) @This() {
-            return @This(){.constraints = constraints};
-        }
+//         pub fn init(constraints: ConstraintsType) @This() {
+//             return @This(){.constraints = constraints};
+//         }
 
-        pub fn constraint(self: *@This()) Constraint {
-            return Constraint.init(self,
-                peekByte, proposeByte, pushByte, popByte,
-                variables, pushVariable, popVariable, countVariable);
-        }
+//         pub fn constraint(self: *@This()) Constraint {
+//             return Constraint.init(self,
+//                 peekByte, proposeByte, pushByte, popByte,
+//                 variables, pushVariable, popVariable, countVariable);
+//         }
 
-        pub fn peekByte(self: *@This()) ?u8 {
-            var byte: ?u8 = null;
-            var constraintIter = self.activeConstraints; 
-            while (constraintIter.drainNextAscending()) |i| {
-                if(self.constraints[i].peekByte()) |peeked| {
-                    byte = byte or peeked;
-                    if(byte != peeked) return null;
-                } else {
-                    return null;
-                }
-            }
+//         pub fn peekByte(self: *@This()) ?u8 {
+//             var byte: ?u8 = null;
+//             var constraintIter = self.activeConstraints; 
+//             while (constraintIter.drainNextAscending()) |i| {
+//                 if(self.constraints[i].peekByte()) |peeked| {
+//                     byte = byte or peeked;
+//                     if(byte != peeked) return null;
+//                 } else {
+//                     return null;
+//                 }
+//             }
 
-            return byte;
-        }
+//             return byte;
+//         }
 
-        pub fn proposeByte(self: *@This(), bitset: *ByteBitset) void {
-            bitset.setAll();
-            var constraintIter = self.activeConstraints; 
-            while (constraintIter.drainNextAscending()) |i| {
-                const proposed: ByteBitset = undefined;
-                this.constraints[i].proposeByte(&proposed);
-                bitset.intersect(bitset, &proposed);
-            }
-        }
+//         pub fn proposeByte(self: *@This(), bitset: *ByteBitset) void {
+//             bitset.setAll();
+//             var constraintIter = self.activeConstraints; 
+//             while (constraintIter.drainNextAscending()) |i| {
+//                 const proposed: ByteBitset = undefined;
+//                 this.constraints[i].proposeByte(&proposed);
+//                 bitset.intersect(bitset, &proposed);
+//             }
+//         }
 
-        pub fn pushByte(self: *@This(), key_fragment: u8) void {
-            var constraintIter = self.activeConstraints; 
-            while (constraintIter.drainNextAscending()) |i| {
-                this.constraints[i].pushByte(key_fragment);
-            }
-        }
+//         pub fn pushByte(self: *@This(), key_fragment: u8) void {
+//             var constraintIter = self.activeConstraints; 
+//             while (constraintIter.drainNextAscending()) |i| {
+//                 this.constraints[i].pushByte(key_fragment);
+//             }
+//         }
 
-        pub fn popByte(self: *@This()) void {
-            var constraintIter = self.activeConstraints; 
-            while (constraintIter.drainNextAscending()) |i| {
-                this.constraints[i].popByte();
-            }
-        }
+//         pub fn popByte(self: *@This()) void {
+//             var constraintIter = self.activeConstraints; 
+//             while (constraintIter.drainNextAscending()) |i| {
+//                 this.constraints[i].popByte();
+//             }
+//         }
 
-        pub fn variables(self: *@This(), bitset: *ByteBitset) void {
-            for(self.constraints) |constraint| {
-                var constraint_variables: ByteBitset = undefined;
-                constraint.variables(&constraint_variables);
-                bitset.setUnion(bitset, &constraint_variables);
-            }
-        }
+//         pub fn variables(self: *@This(), bitset: *ByteBitset) void {
+//             for(self.constraints) |constraint| {
+//                 var constraint_variables: ByteBitset = undefined;
+//                 constraint.variables(&constraint_variables);
+//                 bitset.setUnion(bitset, &constraint_variables);
+//             }
+//         }
 
-        pub fn pushVariable(self: *@This(), variable: u8) void {
-            self.variableStack[self.variableStackLen] = variable;
-            self.variableStackLen += 1;
-            self.activeConstraints.unsetAll();
-            for(self.constraints) |constraint, i| {
-                var constraint_variables: ByteBitset = undefined;
-                constraint.variables(&constraint_variables);
-                if(constraint_variables.has(variable)) {
-                    self.activeConstraints.set(i);
-                    constraint.pushVariable(variable);
-                }
-            }
-        }
+//         pub fn pushVariable(self: *@This(), variable: u8) void {
+//             self.variableStack[self.variableStackLen] = variable;
+//             self.variableStackLen += 1;
+//             self.activeConstraints.unsetAll();
+//             for(self.constraints) |constraint, i| {
+//                 var constraint_variables: ByteBitset = undefined;
+//                 constraint.variables(&constraint_variables);
+//                 if(constraint_variables.has(variable)) {
+//                     self.activeConstraints.set(i);
+//                     constraint.pushVariable(variable);
+//                 }
+//             }
+//         }
         
-        pub fn popVariable(self: *@This()) void {
-            var constraintIter = self.activeConstraints;
-            while (constraintIter.drainNextAscending()) |i| {
-                this.constraints[i].popVariable();
-            }
+//         pub fn popVariable(self: *@This()) void {
+//             var constraintIter = self.activeConstraints;
+//             while (constraintIter.drainNextAscending()) |i| {
+//                 this.constraints[i].popVariable();
+//             }
 
-            self.variableStackLen -= 1;
-            self.activeConstraints.unsetAll();
+//             self.variableStackLen -= 1;
+//             self.activeConstraints.unsetAll();
 
-            if(0 < self.variableStackLen) {
-                const variable = self.variableStack[self.variableStackLen-1];
-                for(self.constraints) |constraint, i| {
-                    var constraint_variables: ByteBitset = undefined;
-                    constraint.variables(&constraint_variables);
-                    if(constraint_variables.has(variable)) {
-                        self.activeConstraints.set(i);
-                        constraint.pushVariable(variable);
-                    }
-                }
-            }
-        }
+//             if(0 < self.variableStackLen) {
+//                 const variable = self.variableStack[self.variableStackLen-1];
+//                 for(self.constraints) |constraint, i| {
+//                     var constraint_variables: ByteBitset = undefined;
+//                     constraint.variables(&constraint_variables);
+//                     if(constraint_variables.has(variable)) {
+//                         self.activeConstraints.set(i);
+//                         constraint.pushVariable(variable);
+//                     }
+//                 }
+//             }
+//         }
 
-        pub fn countVariable(self: *@This(), variable: u8) usize {
-            var min: usize = std.math.maxInt(usize);
+//         pub fn countVariable(self: *@This(), variable: u8) usize {
+//             var min: usize = std.math.maxInt(usize);
 
-            for(self.constraints) |constraint| {
-                var constraint_variables: ByteBitset = undefined;
-                constraint.variables(&constraint_variables);
-                if(constraint_variables.has(variable)) {
-                    min = @minimum(min, constraint.countVariable(variable));
-                }
-            }
+//             for(self.constraints) |constraint| {
+//                 var constraint_variables: ByteBitset = undefined;
+//                 constraint.variables(&constraint_variables);
+//                 if(constraint_variables.has(variable)) {
+//                     min = @minimum(min, constraint.countVariable(variable));
+//                 }
+//             }
 
-            return min;
-        }
-    };
-}
+//             return min;
+//         }
+//     };
+// }
 
 // var v = vars();
 // const loveQuery = query('r', 'characters').find(v('name'), v('title'))
