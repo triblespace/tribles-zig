@@ -18,6 +18,26 @@ pub fn init() void {
     hash.init();
 }
 
+fn FarPointer(comptime T: type) type {
+    return packed struct {
+        slot: u8,
+        page: u32,
+
+        fn init(ptr: *T) @This() {
+            const addr = @ptrToInt(ptr);
+            return @This() {
+                .page = @truncate(u32, addr >> 12),
+                .slot = @truncate(u8, addr >> 4),
+            };
+        }
+
+        fn get(self: @This()) *T {
+            const addr = (@intCast(u32, self.page) << 12) + (@intCast(u32, self.slot) << 4);
+            return @intToPtr(*T, addr);
+        }
+    };
+}
+
 /// The Tries branching factor, fixed to the number of elements
 /// that can be represented by a byte/8bit.
 const BRANCH_FACTOR = 256;
@@ -159,7 +179,6 @@ const NodeTag = enum(u8) {
     branch8,
     branch16,
     branch32,
-    branch64,
     infix8,
     infix16,
     infix24,
@@ -207,11 +226,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         pub const Node = extern union {
             unknown: extern struct {
                 tag: NodeTag,
-                padding: [15]u8 = undefined,
+                padding: [7]u8 = undefined,
             },
             none: extern struct {
                 tag: NodeTag = .none,
-                padding: [15]u8 = undefined,
+                padding: [7]u8 = undefined,
             },
             branch1: BranchNodeBase,
             branch2: BranchNode(2),
@@ -219,7 +238,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             branch8: BranchNode(8),
             branch16: BranchNode(16),
             branch32: BranchNode(32),
-            branch64: BranchNode(64),
             infix8: InfixNode(8),
             infix16: InfixNode(16),
             infix24: InfixNode(24),
@@ -241,7 +259,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     8 => NodeTag.branch8,
                     16 => NodeTag.branch16,
                     32 => NodeTag.branch32,
-                    64 => NodeTag.branch64,
                     else => @panic("Bad bucket count for tag."),
                 };
             }
@@ -277,7 +294,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => try writer.print("{s}", .{self.branch8}),
                     .branch16 => try writer.print("{s}", .{self.branch16}),
                     .branch32 => try writer.print("{s}", .{self.branch32}),
-                    .branch64 => try writer.print("{s}", .{self.branch64}),
                     .infix8 => try writer.print("{s}", .{self.infix8}),
                     .infix16 => try writer.print("{s}", .{self.infix16}),
                     .infix24 => try writer.print("{s}", .{self.infix24}),
@@ -305,7 +321,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.ref(allocator),
                     .branch16 => self.branch16.ref(allocator),
                     .branch32 => self.branch32.ref(allocator),
-                    .branch64 => self.branch64.ref(allocator),
                     .infix8 => self.infix8.ref(allocator),
                     .infix16 => self.infix16.ref(allocator),
                     .infix24 => self.infix24.ref(allocator),
@@ -328,7 +343,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.rel(allocator),
                     .branch16 => self.branch16.rel(allocator),
                     .branch32 => self.branch32.rel(allocator),
-                    .branch64 => self.branch64.rel(allocator),
                     .infix8 => self.infix8.rel(allocator),
                     .infix16 => self.infix16.rel(allocator),
                     .infix24 => self.infix24.rel(allocator),
@@ -351,7 +365,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.count(),
                     .branch16 => self.branch16.count(),
                     .branch32 => self.branch32.count(),
-                    .branch64 => self.branch64.count(),
                     .infix8 => self.infix8.count(),
                     .infix16 => self.infix16.count(),
                     .infix24 => self.infix24.count(),
@@ -374,7 +387,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.segmentCount(depth),
                     .branch16 => self.branch16.segmentCount(depth),
                     .branch32 => self.branch32.segmentCount(depth),
-                    .branch64 => self.branch64.segmentCount(depth),
                     .infix8 => self.infix8.segmentCount(depth),
                     .infix16 => self.infix16.segmentCount(depth),
                     .infix24 => self.infix24.segmentCount(depth),
@@ -397,7 +409,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.hash(prefix),
                     .branch16 => self.branch16.hash(prefix),
                     .branch32 => self.branch32.hash(prefix),
-                    .branch64 => self.branch64.hash(prefix),
                     .infix8 => self.infix8.hash(prefix),
                     .infix16 => self.infix16.hash(prefix),
                     .infix24 => self.infix24.hash(prefix),
@@ -420,7 +431,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.minhash(prefix, depth),
                     .branch16 => self.branch16.minhash(prefix, depth),
                     .branch32 => self.branch32.minhash(prefix, depth),
-                    .branch64 => self.branch64.minhash(prefix, depth),
                     .infix8 => self.infix8.minhash(prefix, depth),
                     .infix16 => self.infix16.minhash(prefix, depth),
                     .infix24 => self.infix24.minhash(prefix, depth),
@@ -443,7 +453,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.range(),
                     .branch16 => self.branch16.range(),
                     .branch32 => self.branch32.range(),
-                    .branch64 => self.branch64.range(),
                     .infix8 => self.infix8.range(),
                     .infix16 => self.infix16.range(),
                     .infix24 => self.infix24.range(),
@@ -466,7 +475,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.peek(at_depth),
                     .branch16 => self.branch16.peek(at_depth),
                     .branch32 => self.branch32.peek(at_depth),
-                    .branch64 => self.branch64.peek(at_depth),
                     .infix8 => self.infix8.peek(at_depth),
                     .infix16 => self.infix16.peek(at_depth),
                     .infix24 => self.infix24.peek(at_depth),
@@ -489,7 +497,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.propose(at_depth, result_set),
                     .branch16 => self.branch16.propose(at_depth, result_set),
                     .branch32 => self.branch32.propose(at_depth, result_set),
-                    .branch64 => self.branch64.propose(at_depth, result_set),
                     .infix8 => self.infix8.propose(at_depth, result_set),
                     .infix16 => self.infix16.propose(at_depth, result_set),
                     .infix24 => self.infix24.propose(at_depth, result_set),
@@ -512,7 +519,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.get(at_depth, byte_key),
                     .branch16 => self.branch16.get(at_depth, byte_key),
                     .branch32 => self.branch32.get(at_depth, byte_key),
-                    .branch64 => self.branch64.get(at_depth, byte_key),
                     .infix8 => self.infix8.get(at_depth, byte_key),
                     .infix16 => self.infix16.get(at_depth, byte_key),
                     .infix24 => self.infix24.get(at_depth, byte_key),
@@ -535,7 +541,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.put(start_depth, key, value, single_owner, allocator),
                     .branch16 => self.branch16.put(start_depth, key, value, single_owner, allocator),
                     .branch32 => self.branch32.put(start_depth, key, value, single_owner, allocator),
-                    .branch64 => self.branch64.put(start_depth, key, value, single_owner, allocator),
                     .infix8 => self.infix8.put(start_depth, key, value, single_owner, allocator),
                     .infix16 => self.infix16.put(start_depth, key, value, single_owner, allocator),
                     .infix24 => self.infix24.put(start_depth, key, value, single_owner, allocator),
@@ -557,7 +562,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.createBranch(child, at_depth, prefix),
                     .branch16 => self.branch16.createBranch(child, at_depth, prefix),
                     .branch32 => self.branch32.createBranch(child, at_depth, prefix),
-                    .branch64 => self.branch64.createBranch(child, at_depth, prefix),
                     .none => @panic("Called `createBranch` on none."),
                     else => @panic("Called `createBranch` on non-branch node."),
                 };
@@ -571,7 +575,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.reinsertBranch(node),
                     .branch16 => self.branch16.reinsertBranch(node),
                     .branch32 => self.branch32.reinsertBranch(node),
-                    .branch64 => self.branch64.reinsertBranch(node),
                     .none => @panic("Called `reinsertBranch` on none."),
                     else => @panic("Called `reinsertBranch` on non-branch node."),
                 };
@@ -585,7 +588,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.grow(allocator),
                     .branch16 => self.branch16.grow(allocator),
                     .branch32 => self.branch32.grow(allocator),
-                    .branch64 => self.branch64.grow(allocator),
                     .none => @panic("Called `grow` on none."),
                     else => @panic("Called `grow` on non-branch node."),
                 };
@@ -609,15 +611,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.branch_depth,
                     .branch16 => self.branch16.branch_depth,
                     .branch32 => self.branch32.branch_depth,
-                    .branch64 => self.branch64.branch_depth,
-                    .infix8 => self.infix8.body.child.coveredDepth(),
-                    .infix16 => self.infix16.body.child.coveredDepth(),
-                    .infix24 => self.infix24.body.child.coveredDepth(),
-                    .infix32 => self.infix32.body.child.coveredDepth(),
-                    .infix40 => self.infix40.body.child.coveredDepth(),
-                    .infix48 => self.infix48.body.child.coveredDepth(),
-                    .infix56 => self.infix56.body.child.coveredDepth(),
-                    .infix64 => self.infix64.body.child.coveredDepth(),
+                    .infix8 => self.infix8.body.get().child.coveredDepth(), //TODO: Check if we shouldn't use child_depth here
+                    .infix16 => self.infix16.body.get().child.coveredDepth(),
+                    .infix24 => self.infix24.body.get().child.coveredDepth(),
+                    .infix32 => self.infix32.body.get().child.coveredDepth(),
+                    .infix40 => self.infix40.body.get().child.coveredDepth(),
+                    .infix48 => self.infix48.body.get().child.coveredDepth(),
+                    .infix56 => self.infix56.body.get().child.coveredDepth(),
+                    .infix64 => self.infix64.body.get().child.coveredDepth(),
                     .leaf => key_length,
                     .twig => key_length,
                 };
@@ -632,7 +633,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.mem_info(),
                     .branch16 => self.branch16.mem_info(),
                     .branch32 => self.branch32.mem_info(),
-                    .branch64 => self.branch64.mem_info(),
                     .infix8 => self.infix8.mem_info(),
                     .infix16 => self.infix16.mem_info(),
                     .infix24 => self.infix24.mem_info(),
@@ -675,10 +675,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             return mask & luts[v][pi];
         }
 
-        const max_bucket_count = BRANCH_FACTOR / Bucket.slot_count; //64
+        const max_bucket_count = BRANCH_FACTOR / Bucket.slot_count; //32
 
         const Bucket = extern struct {
-            const slot_count = 4;
+            const slot_count = 8;
 
             slots: [slot_count]Node = [_]Node{Node{ .none = .{} }} ** slot_count,
 
@@ -798,15 +798,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         const BranchNodeBase = extern struct {
-            const infix_len = 6;
+            const infix_len = 1;
 
             tag: NodeTag = .branch1,
             /// The infix stored in this head.
             infix: [infix_len]u8 = [_]u8{0} ** infix_len,
             /// The branch depth of the body.
             branch_depth: u8,
-            /// The address of the pointer associated with the key.
-            body: *Body,
+            body: FarPointer(Body) align(1),
 
             const Head = @This();
 
@@ -843,7 +842,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                 new_body.* = Body{};
 
-                var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
+                var new_head = Head{ .branch_depth = branch_depth, .body = FarPointer(Body).init(new_body) };
 
                 const used_infix_len = @minimum(branch_depth, infix_len);
                 mem.copy(u8, new_head.infix[infix_len - used_infix_len ..], key[branch_depth - used_infix_len .. branch_depth]);
@@ -862,20 +861,22 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
-                if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
+                const body = self.body.get();
+                if (body.ref_count == std.math.maxInt(@TypeOf(body.ref_count))) {
                     // Reference counter exhausted, we need to make a copy of this node.
                     return @bitCast(Node, try self.copy(allocator));
                 } else {
-                    self.body.ref_count += 1;
+                    body.ref_count += 1;
                     return null;
                 }
             }
 
             pub fn rel(self: Head, allocator: std.mem.Allocator) void {
-                self.body.ref_count -= 1;
-                if (self.body.ref_count == 0) {
-                    defer allocator.free(std.mem.asBytes(self.body));
-                    for (self.body.bucket.slots) |slot| {
+                const body = self.body.get();
+                body.ref_count -= 1;
+                if (body.ref_count == 0) {
+                    defer allocator.free(std.mem.asBytes(body));
+                    for (body.bucket.slots) |slot| {
                         if (slot.unknown.tag != .none) {
                             slot.rel(allocator);
                         }
@@ -884,12 +885,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn count(self: Head) u64 {
-                return self.body.leaf_count;
+                const body = self.body.get();
+                return body.leaf_count;
             }
 
             pub fn segmentCount(self: Head, depth: u8) u32 {
+                const body = self.body.get();
                 if (segment_lut[depth] == segment_lut[self.branch_depth]) {
-                    return self.body.segment_count;
+                    return body.segment_count;
                 } else {
                     return 1;
                 }
@@ -897,7 +900,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub fn hash(self: Head, prefix: [key_length]u8) Hash {
                 _ = prefix;
-                return self.body.node_hash;
+                const body = self.body.get();
+                return body.node_hash;
             }
 
             pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
@@ -918,9 +922,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+                const body = self.body.get();
                 result_set.unsetAll();
                 if (at_depth == self.branch_depth) {
-                    for (self.body.bucket.slots) |slot| {
+                    for (body.bucket.slots) |slot| {
                         if (!slot.isNone()) {
                             result_set.set(slot.peek(at_depth).?);
                         }
@@ -935,7 +940,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
-                const single_owner = parent_single_owner and self.body.ref_count == 1;
+                const body = self.body.get();
+
+                const single_owner = parent_single_owner and body.ref_count == 1;
 
                 var branch_depth = start_depth;
                 while (branch_depth < self.branch_depth) : (branch_depth += 1) {
@@ -944,7 +951,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     // The entire compressed infix above this node matched with the key.
                     const byte_key = key[branch_depth];
 
-                    const old_child = self.body.bucket.get(self.branch_depth, byte_key);
+                    const old_child = body.bucket.get(self.branch_depth, byte_key);
                     if (old_child.unknown.tag != .none) {
                         // The node already has a child branch with the same byte byte_key as the one in the key.
                         const old_child_hash = old_child.hash(key);
@@ -955,20 +962,22 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         if (Hash.equal(old_child_hash, new_child_hash)) {
                             return @bitCast(Node, self);
                         }
-                        const new_hash = self.body.node_hash.update(old_child_hash, new_child_hash);
-                        const new_leaf_count = self.body.leaf_count - old_child_leaf_count + new_child.count();
-                        const new_segment_count = self.body.segment_count - old_child_segment_count + new_child.segmentCount(branch_depth);
+                        const new_hash = body.node_hash.update(old_child_hash, new_child_hash);
+                        const new_leaf_count = body.leaf_count - old_child_leaf_count + new_child.count();
+                        const new_segment_count = body.segment_count - old_child_segment_count + new_child.segmentCount(branch_depth);
 
                         var self_or_copy = self;
                         if (!single_owner) {
                             self_or_copy = try self.copy(allocator);
                             old_child.rel(allocator);
                         }
-                        self_or_copy.body.node_hash = new_hash;
-                        self_or_copy.body.leaf_count = new_leaf_count;
-                        self_or_copy.body.segment_count = new_segment_count;
+                        const self_or_copy_body = self_or_copy.body.get();
 
-                        _ = self_or_copy.body.bucket.putIntoSame(self.branch_depth, new_child);
+                        self_or_copy_body.node_hash = new_hash;
+                        self_or_copy_body.leaf_count = new_leaf_count;
+                        self_or_copy_body.segment_count = new_segment_count;
+
+                        _ = self_or_copy_body.bucket.putIntoSame(self.branch_depth, new_child);
                         return @bitCast(Node, self_or_copy);
                     } else {
                         const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(key, value), allocator);
@@ -991,8 +1000,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn get(self: Head, at_depth: u8, byte_key: u8) Node {
+                const body = self.body.get();
                 if (at_depth == self.branch_depth) {
-                    return self.body.bucket.get(self.branch_depth, byte_key);
+                    return body.bucket.get(self.branch_depth, byte_key);
                 }
                 if (self.peek(at_depth)) |own_key| {
                     if (own_key == byte_key) return @bitCast(Node, self);
@@ -1001,17 +1011,19 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
+                const body = self.body.get();
+
                 const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
-                new_body.* = self.body.*;
+                new_body.* = body.*;
                 new_body.ref_count = 1;
 
                 var new_head = self;
-                new_head.body = self.body;
+                new_head.body = FarPointer(Body).init(new_body);
 
-                for (new_head.body.bucket.slots) |*child| {
-                    if (!child.isNone()) {
+                for (new_body.bucket.slots) |*child| {
+                    if (!child.isNone()) { //TODO is this check needed?
                         const potential_child_copy = try child.ref(allocator);
                         if (potential_child_copy) |new_child| {
                             child.* = new_child;
@@ -1023,9 +1035,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
-                const bucket = self.body.bucket;
+                const body = self.body.get();
 
-                const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
+                const bucket = body.bucket;
+
+                const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                 const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
 
                 new_body.buckets[0] = bucket;
@@ -1038,28 +1052,34 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     new_body.child_set.set(child.peek(self.branch_depth).?);
                 }
 
-                return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body });
+                return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = FarPointer(GrownHead.Body).init(new_body) });
             }
 
             fn createBranch(self: Head, child: Node, at_depth: u8, prefix: [key_length]u8) ?Node {
-                self.body.node_hash = self.body.node_hash.combine(child.hash(prefix));
-                self.body.leaf_count += child.count();
-                self.body.segment_count += child.segmentCount(at_depth);
+                const body = self.body.get();
+
+                body.node_hash = body.node_hash.combine(child.hash(prefix));
+                body.leaf_count += child.count();
+                body.segment_count += child.segmentCount(at_depth);
 
                 return self.reinsertBranch(child);
             }
 
             fn reinsertBranch(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node.none
-                if (self.body.bucket.putIntoEmpty(node)) {
+                const body = self.body.get();
+
+                if (body.bucket.putIntoEmpty(node)) {
                     return null; //TODO use none.
                 }
                 return node;
             }
 
             fn mem_info(self: Head) MemInfo {
+                const body = self.body.get();
+
                 var unused_slots: u8 = 0;
                 var wasted_infix_bytes: usize = 0;
-                for (self.body.bucket.slots) |child| {
+                for (body.bucket.slots) |child| {
                     if (child.isNone()) {
                         unused_slots += 1;
                     } else {
@@ -1072,7 +1092,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         fn BranchNode(comptime bucket_count: u8) type {
-            const infix_len = 6;
+            const infix_len = 1;
 
             return extern struct {
                 tag: NodeTag = Node.branchNodeTag(bucket_count),
@@ -1080,8 +1100,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 infix: [infix_len]u8 = [_]u8{0} ** infix_len,
                 /// The branch depth of the body.
                 branch_depth: u8,
-                /// The address of the pointer associated with the key.
-                body: *Body,
+                body: FarPointer(Body) align(1),
 
                 const Head = @This();
 
@@ -1122,7 +1141,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = Body{};
 
-                    var new_head = Head{ .branch_depth = branch_depth, .body = new_body };
+                    var new_head = Head{ .branch_depth = branch_depth, .body = FarPointer(Body).init(new_body) };
 
                     const used_infix_len = @minimum(branch_depth, infix_len);
                     mem.copy(u8, new_head.infix[infix_len - used_infix_len ..], key[branch_depth - used_infix_len .. branch_depth]);
@@ -1131,20 +1150,24 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
-                    if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
+                    const body = self.body.get();
+
+                    if (body.ref_count == std.math.maxInt(@TypeOf(body.ref_count))) {
                         // Reference counter exhausted, we need to make a copy of this node.
                         return @bitCast(Node, try self.copy(allocator));
                     } else {
-                        self.body.ref_count += 1;
+                        body.ref_count += 1;
                         return null;
                     }
                 }
 
                 pub fn rel(self: Head, allocator: std.mem.Allocator) void {
-                    self.body.ref_count -= 1;
-                    if (self.body.ref_count == 0) {
-                        defer allocator.free(std.mem.asBytes(self.body));
-                        var child_iterator = self.body.child_set;
+                    const body = self.body.get();
+
+                    body.ref_count -= 1;
+                    if (body.ref_count == 0) {
+                        defer allocator.free(std.mem.asBytes(body));
+                        var child_iterator = body.child_set;
                         while (child_iterator.drainNextAscending()) |child_byte_key| {
                             self.getBranch(@intCast(u8, child_byte_key)).rel(allocator);
                         }
@@ -1152,20 +1175,26 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn count(self: Head) u64 {
-                    return self.body.leaf_count;
+                    const body = self.body.get();
+
+                    return body.leaf_count;
                 }
 
                 pub fn segmentCount(self: Head, depth: u8) u32 {
+                    const body = self.body.get();
+
                     if (segment_lut[depth] == segment_lut[self.branch_depth]) {
-                        return self.body.segment_count;
+                        return body.segment_count;
                     } else {
                         return 1;
                     }
                 }
 
                 pub fn hash(self: Head, prefix: [key_length]u8) Hash {
+                    const body = self.body.get();
+
                     _ = prefix;
-                    return self.body.node_hash;
+                    return body.node_hash;
                 }
 
                 pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
@@ -1186,8 +1215,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
+                    const body = self.body.get();
+
                     if (at_depth == self.branch_depth) {
-                        result_set.* = self.body.child_set;
+                        result_set.* = body.child_set;
                         return;
                     }
 
@@ -1199,7 +1230,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
-                    const single_owner = parent_single_owner and self.body.ref_count == 1;
+                    const body = self.body.get();
+
+                    const single_owner = parent_single_owner and body.ref_count == 1;
 
                     var branch_depth = start_depth;
                     while (branch_depth < self.branch_depth) : (branch_depth += 1) {
@@ -1218,18 +1251,21 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                             if (old_child_hash.equal(new_child_hash)) {
                                 return @bitCast(Node, self);
                             }
-                            const new_hash = self.body.node_hash.update(old_child_hash, new_child_hash);
-                            const new_leaf_count = self.body.leaf_count - old_child_leaf_count + new_child.count();
-                            const new_segment_count = self.body.segment_count - old_child_segment_count + new_child.segmentCount(branch_depth);
+                            const new_hash = body.node_hash.update(old_child_hash, new_child_hash);
+                            const new_leaf_count = body.leaf_count - old_child_leaf_count + new_child.count();
+                            const new_segment_count = body.segment_count - old_child_segment_count + new_child.segmentCount(branch_depth);
 
                             var self_or_copy = self;
                             if (!single_owner) {
                                 self_or_copy = try self.copy(allocator);
                                 old_child.rel(allocator);
                             }
-                            self_or_copy.body.node_hash = new_hash;
-                            self_or_copy.body.leaf_count = new_leaf_count;
-                            self_or_copy.body.segment_count = new_segment_count;
+
+                            const self_or_copy_body = self_or_copy.body.get();
+
+                            self_or_copy_body.node_hash = new_hash;
+                            self_or_copy_body.leaf_count = new_leaf_count;
+                            self_or_copy_body.segment_count = new_segment_count;
 
                             self_or_copy.updateBranch(new_child);
                             return @bitCast(Node, self_or_copy);
@@ -1268,14 +1304,16 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
+                    const body = self.body.get();
+
                     const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
-                    new_body.* = self.body.*;
+                    new_body.* = body.*;
                     new_body.ref_count = 1;
 
                     var new_head = self;
-                    new_head.body = self.body;
+                    new_head.body = FarPointer(Body).init(new_body);
 
                     var child_iterator = new_body.child_set;
                     while (child_iterator.drainNextAscending()) |child_byte_key| {
@@ -1294,26 +1332,30 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     if (bucket_count == max_bucket_count) {
                         return @bitCast(Node, self);
                     } else {
-                        //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
-                        const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
+                        const body = self.body.get();
+
+                        const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
                         const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
-                        //std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
-                        return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body });
+                        return @bitCast(Node, GrownHead{ .branch_depth = self.branch_depth, .infix = self.infix, .body = FarPointer(GrownHead.Body).init(new_body) });
                     }
                 }
 
                 fn createBranch(self: Head, child: Node, at_depth: u8, prefix: [key_length]u8) ?Node {
-                    self.body.node_hash = self.body.node_hash.combine(child.hash(prefix));
-                    self.body.leaf_count += child.count();
-                    self.body.segment_count += child.segmentCount(at_depth);
+                    const body = self.body.get();
+
+                    body.node_hash = body.node_hash.combine(child.hash(prefix));
+                    body.leaf_count += child.count();
+                    body.segment_count += child.segmentCount(at_depth);
 
                     return self.reinsertBranch(child);
                 }
 
                 fn reinsertBranch(self: Head, node: Node) ?Node {
+                    const body = self.body.get();
+
                     var byte_key = node.peek(self.branch_depth).?;
-                    self.body.child_set.set(byte_key);
+                    body.child_set.set(byte_key);
 
                     const growable = (bucket_count != max_bucket_count);
                     const base_size = (bucket_count == 1);
@@ -1324,8 +1366,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         random = rand_lut[random ^ byte_key];
                         const bucket_index = hashByteKey(use_rand_hash, bucket_count, byte_key);
 
-                        if (self.body.buckets[bucket_index].put(self.branch_depth, &self.body.rand_hash_used, bucket_count, bucket_index, entry)) {
-                            self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
+                        if (body.buckets[bucket_index].put(self.branch_depth, &body.rand_hash_used, bucket_count, bucket_index, entry)) {
+                            body.rand_hash_used.setValue(byte_key, use_rand_hash);
                             return null;
                         }
 
@@ -1335,13 +1377,13 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                         if (growable) {
                             attempts += 1;
-                            entry = self.body.buckets[bucket_index].displaceRandomly(random, entry);
-                            self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
+                            entry = body.buckets[bucket_index].displaceRandomly(random, entry);
+                            body.rand_hash_used.setValue(byte_key, use_rand_hash);
                             byte_key = entry.peek(self.branch_depth).?;
-                            use_rand_hash = !self.body.rand_hash_used.isSet(byte_key);
+                            use_rand_hash = !body.rand_hash_used.isSet(byte_key);
                         } else {
-                            entry = self.body.buckets[bucket_index].displaceRandHashOnly(self.branch_depth, &self.body.rand_hash_used, entry);
-                            self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
+                            entry = body.buckets[bucket_index].displaceRandHashOnly(self.branch_depth, &body.rand_hash_used, entry);
+                            body.rand_hash_used.setValue(byte_key, use_rand_hash);
                             byte_key = entry.peek(self.branch_depth).?;
                         }
                     }
@@ -1349,29 +1391,37 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 fn hasBranch(self: Head, byte_key: u8) bool {
-                    return self.body.child_set.isSet(byte_key);
+                    const body = self.body.get();
+
+                    return body.child_set.isSet(byte_key);
                 }
 
                 // Contract: Key looked up must exist. Ensure with hasBranch.
                 fn getBranch(self: Head, byte_key: u8) Node {
-                    assert(self.body.child_set.isSet(byte_key));
-                    const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-                    return self.body.buckets[bucket_index].get(self.branch_depth, byte_key);
+                    const body = self.body.get();
+
+                    assert(body.child_set.isSet(byte_key));
+                    const bucket_index = hashByteKey(body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
+                    return body.buckets[bucket_index].get(self.branch_depth, byte_key);
                 }
 
                 fn updateBranch(self: Head, node: Node) void {
+                    const body = self.body.get();
+
                     const byte_key = node.peek(self.branch_depth).?;
-                    const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-                    _ = self.body.buckets[bucket_index].putIntoSame(self.branch_depth, node);
+                    const bucket_index = hashByteKey(body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
+                    _ = body.buckets[bucket_index].putIntoSame(self.branch_depth, node);
                 }
 
                 fn mem_info(self: Head) MemInfo {
-                    const child_count = self.body.child_set.count();
+                    const body = self.body.get();
+
+                    const child_count = body.child_set.count();
                     const total_slot_count = @as(usize, bucket_count) * @as(usize, Bucket.slot_count);
                     const unused_slots = total_slot_count - child_count;
 
                     var wasted_infix_bytes: usize = 0;
-                    var child_iterator = self.body.child_set;
+                    var child_iterator = body.child_set;
                     while (child_iterator.drainNextAscending()) |child_byte_key| {
                         const child = self.getBranch(@intCast(u8, child_byte_key));
                         wasted_infix_bytes += (self.branch_depth - child.range());
@@ -1420,7 +1470,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         }
 
         fn InfixNode(comptime infix_len: u8) type {
-            const head_infix_len = 6;
+            const head_infix_len = 1;
             const body_infix_len = infix_len - head_infix_len;
             return extern struct {
                 tag: NodeTag = Node.infixNodeTag(infix_len),
@@ -1429,7 +1479,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
 
-                body: *Body,
+                body: FarPointer(Body) align(1),
 
                 const Head = @This();
                 const Body = extern struct {
@@ -1446,7 +1496,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                     const child_depth = child.range();
 
-                    var new_head = Head{ .child_depth = child_depth, .body = new_body };
+                    var new_head = Head{ .child_depth = child_depth, .body = FarPointer(Body).init(new_body) };
 
                     const key_start_head = child_depth - @minimum(infix_len, child_depth);
                     const key_start_body = child_depth - @minimum(body_infix_len, child_depth);
@@ -1455,7 +1505,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const infix_start_body = depth_to_infix(body_infix_len, child_depth, key_start_body);
 
                     mem.copy(u8, new_head.infix[infix_start_head..], key[key_start_head..key_start_body]);
-                    mem.copy(u8, new_head.body.infix[infix_start_body..], key[key_start_body..child_depth]);
+                    mem.copy(u8, new_body.infix[infix_start_body..], key[key_start_body..child_depth]);
 
                     return new_head;
                 }
@@ -1469,54 +1519,68 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     _ = self;
                     _ = fmt;
                     _ = options;
-                    try writer.print("{*} �{d}:\n", .{ self.body, self.body.ref_count });
-                    try writer.print("  infixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{ head_infix_len, body_infix_len, std.fmt.fmtSliceHexUpper(&self.infix), std.fmt.fmtSliceHexUpper(&self.body.infix) });
+                    const body = self.body.get();
+
+                    try writer.print("{*} �{d}:\n", .{ body, body.ref_count });
+                    try writer.print("  infixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{ head_infix_len, body_infix_len, std.fmt.fmtSliceHexUpper(&self.infix), std.fmt.fmtSliceHexUpper(&body.infix) });
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
+                    const body = self.body.get();
+
                     const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
-                    new_body.* = self.body.*;
+                    new_body.* = body.*;
                     new_body.ref_count = 1;
 
                     if (try new_body.child.ref(allocator)) |new_child| {
                         new_body.child = new_child;
                     }
 
-                    return Head{ .child_depth = self.child_depth, .infix = self.infix, .body = new_body };
+                    return Head{ .child_depth = self.child_depth, .infix = self.infix, .body = FarPointer(Body).init(new_body) };
                 }
 
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
-                    if (self.body.ref_count == std.math.maxInt(@TypeOf(self.body.ref_count))) {
+                    const body = self.body.get();
+
+                    if (body.ref_count == std.math.maxInt(@TypeOf(body.ref_count))) {
                         // Reference counter exhausted, we need to make a copy of this node.
                         return @bitCast(Node, try self.copy(allocator));
                     } else {
-                        self.body.ref_count += 1;
+                        body.ref_count += 1;
                         return null;
                     }
                 }
 
                 pub fn rel(self: Head, allocator: std.mem.Allocator) void {
-                    self.body.ref_count -= 1;
-                    if (self.body.ref_count == 0) {
-                        self.body.child.rel(allocator);
-                        allocator.free(std.mem.asBytes(self.body));
+                    const body = self.body.get();
+
+                    body.ref_count -= 1;
+                    if (body.ref_count == 0) {
+                        body.child.rel(allocator);
+                        allocator.free(std.mem.asBytes(body));
                     }
                 }
 
                 pub fn count(self: Head) u64 {
-                    return self.body.child.count();
+                    const body = self.body.get();
+
+                    return body.child.count();
                 }
 
                 pub fn segmentCount(self: Head, depth: u8) u32 {
+                    const body = self.body.get();
+
                     if (segment_lut[depth] == segment_lut[self.child_depth]) {
-                        return self.body.child.segmentCount(depth);
+                        return body.child.segmentCount(depth);
                     } else {
                         return 1;
                     }
                 }
 
                 pub fn hash(self: Head, prefix: [key_length]u8) Hash {
+                    const body = self.body.get();
+
                     var key = prefix;
                     const key_start_head = self.child_depth - @minimum(infix_len, self.child_depth);
                     const key_start_body = self.child_depth - @minimum(body_infix_len, self.child_depth);
@@ -1525,9 +1589,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const infix_start_body = depth_to_infix(body_infix_len, self.child_depth, key_start_body);
 
                     mem.copy(u8, key[key_start_head..key_start_body], self.infix[infix_start_head..]);
-                    mem.copy(u8, key[key_start_body..self.child_depth], self.body.infix[infix_start_body..]);
+                    mem.copy(u8, key[key_start_body..self.child_depth], body.infix[infix_start_body..]);
 
-                    return self.body.child.hash(key);
+                    return body.child.hash(key);
                 }
 
                 pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
@@ -1553,12 +1617,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn peek(self: Head, at_depth: u8) ?u8 {
+                    const body = self.body.get();
+
                     if (self.child_depth <= at_depth) return null;
                     const infix_index = depth_to_infix(infix_len, self.child_depth, at_depth);
                     if (infix_index < head_infix_len) {
                         return self.infix[infix_index];
                     }
-                    return self.body.infix[infix_index - head_infix_len];
+                    return body.infix[infix_index - head_infix_len];
                 }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1567,7 +1633,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         // We know that the child has its range maxed out otherwise
                         // there wouldn't be a infix node, so this access is easy and
                         // also cheap.
-                        result_set.set(self.body.child.peek(at_depth).?);
+                        const body = self.body.get();
+
+                        result_set.set(body.child.peek(at_depth).?);
                         return;
                     }
 
@@ -1579,8 +1647,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 pub fn get(self: Head, at_depth: u8, key: u8) Node {
                     if (at_depth == self.child_depth) {
-                        if (self.body.child.peek(at_depth).? == key) {
-                            return self.body.child;
+                        const body = self.body.get();
+
+                        if (body.child.peek(at_depth).? == key) {
+                            return body.child;
                         } else {
                             return Node.none;
                         }
@@ -1595,14 +1665,16 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
-                    const single_owner = parent_single_owner and self.body.ref_count == 1;
+                    const body = self.body.get();
+
+                    const single_owner = parent_single_owner and body.ref_count == 1;
 
                     var branch_depth = start_depth;
                     while (branch_depth < self.child_depth) : (branch_depth += 1) {
                         if (key[branch_depth] != (self.peek(branch_depth).?)) break;
                     } else {
                         // The entire compressed infix above this node matched with the key.
-                        const old_child = self.body.child;
+                        const old_child = body.child;
                         const old_child_hash = old_child.hash(key);
                         const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
                         const new_child_hash = new_child.hash(key);
@@ -1619,7 +1691,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                             self_or_copy = try self.copy(allocator);
                             old_child.rel(allocator);
                         }
-                        self_or_copy.body.child = new_child;
+                        const self_or_copy_body = self_or_copy.body.get();
+
+                        self_or_copy_body.child = new_child;
                         return @bitCast(Node, self_or_copy);
                     }
 
@@ -1633,9 +1707,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const infix_start_body = depth_to_infix(body_infix_len, self.child_depth, key_start_body);
 
                     mem.copy(u8, old_key[key_start_head..key_start_body], self.infix[infix_start_head..]);
-                    mem.copy(u8, old_key[key_start_body..self.child_depth], self.body.infix[infix_start_body..]);
+                    mem.copy(u8, old_key[key_start_body..self.child_depth], body.infix[infix_start_body..]);
 
-                    const child_node = try WrapInfixNode(branch_depth, old_key, self.body.child, allocator);
+                    const child_node = try WrapInfixNode(branch_depth, old_key, body.child, allocator);
                     const branch_node_above = try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, child_node, allocator);
 
                     return try WrapInfixNode(start_depth, key, branch_node_above, allocator);
@@ -1663,7 +1737,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         }
 
         const LeafNode = extern struct {
-            pub const suffix_len = 15 - @sizeOf(T); // TODO Check that this doesn't underflow.
+            pub const suffix_len = 7 - @sizeOf(T); // TODO Check that this doesn't underflow.
             const key_start = key_length - suffix_len;
 
             tag: NodeTag = .twig,
@@ -1781,7 +1855,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         const TwigNode = extern struct {
-            const suffix_len = 15;
+            const suffix_len = 7;
             const key_start = key_length - suffix_len;
 
             tag: NodeTag = .twig,
