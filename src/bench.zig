@@ -17,7 +17,7 @@ const sample_size: usize = 1;
 var data_size: usize = 1000;
 const change_prob = 0.01;
 
-const PACT = pact.PACT(&[_]u8{16, 16, 32}, u64);
+const PACT = pact.PACT(&[_]u8{16, 16, 32}, u32);
 
 pub fn main() !void {
     const params = comptime [_]clap.Param(clap.Help){
@@ -44,7 +44,8 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_tribleset_write();
+        try benchmark_pact_cursor_iterate();
+        //try benchmark_tribleset_write();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -248,7 +249,7 @@ pub fn benchmark_pact_cursor_iterate() !void {
     var rnd = std.rand.DefaultPrng.init(0).random();
 
     var tree = PACT.Tree.init();
-    defer tree.deinit();
+    defer tree.deinit(std.heap.c_allocator);
 
     var t = Trible.initAribitrary(rnd);
 
