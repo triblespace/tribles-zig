@@ -332,6 +332,7 @@ const TribleConstraint = struct {
 };
 
 pub PatternConstraint = struct {
+    allocator: std.mem.Allocator,
     tribleSet: TribleSet,
     tribleConstraints: []TribleConstraint,
     intersectionConstraint: IntersectionConstraint([]TribleConstraint)
@@ -341,9 +342,15 @@ pub PatternConstraint = struct {
             peekByte, proposeByte, pushByte, popByte,
             variables, pushVariable, popVariable, countVariable);
     }
+    
+    pub fn init(allocator: std.mem.Allocator) TribleSet {
+        //TODO
+    }
 
     pub fn deinit(self: *@This()) void {
+        self.allocator.free(self.tribleConstraints);
         self.tribleSet.deinit();
+        self.* = undefined;
     }
     
     pub fn peekByte(self: *@This()) ?u8 {
