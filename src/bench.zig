@@ -12,10 +12,12 @@ const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
 const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 const commit = @import("./commit.zig");
+const FUCID = @import("./FUCID.zig");
+
 
 const sample_size: usize = 1;
 var data_size: usize = 1000;
-const change_prob = 0.01;
+const change_prob = 0.1;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u32);
 
@@ -44,9 +46,10 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
+        try benchmark_pact_small_write();
         //try benchmark_pact_cursor_iterate();
         //try benchmark_tribleset_write();
-        try benchmark_pact_small_write();
+        //try benchmark_commit();
     }
     //try benchmark_hashing();
     //try benchmark_std();
@@ -140,7 +143,7 @@ pub fn benchmark_pact_small_write() !void {
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
-
+    
     coz.begin("insert");
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
@@ -148,7 +151,17 @@ pub fn benchmark_pact_small_write() !void {
 
         timer.reset();
 
-        try tree.put(std.mem.asBytes(&i)[0..8].*, null, std.heap.c_allocator);
+        const le_bytes = std.mem.asBytes(&i)[0..8].*;
+        const be_bytes = [8]u8{le_bytes[7],
+                               le_bytes[6],
+                               le_bytes[5],
+                               le_bytes[4],
+                               le_bytes[3],
+                               le_bytes[2],
+                               le_bytes[1],
+                               le_bytes[0]};
+
+        try tree.put(be_bytes, null, std.heap.c_allocator);
         coz.progress("put");
 
         t_total += timer.lap();
@@ -157,13 +170,9 @@ pub fn benchmark_pact_small_write() !void {
 
     std.debug.print("Inserted {d} with {d} unique in {d}ns\n", .{ i, tree.count(), t_total });
 
-    std.debug.print("{s}\n", .{tree});
+    //std.debug.print("{s}\n", .{tree});
 
-    // var node_iter = tree.nodes();
-    // while(node_iter.next()) |res| {
-    //     std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
-    // }
-
+    std.debug.print("{s}\n", .{tree.mem_info()});
 }
 
 const union_tree_count = 1000;
@@ -389,6 +398,8 @@ pub fn benchmark_commit() !void {
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
+
+    FUCID.init(rnd);
 
     var set = TribleSet.init(std.heap.c_allocator);
     defer set.deinit();

@@ -918,6 +918,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub fn peek(self: Head, at_depth: u8) ?u8 {
                 if (self.branch_depth <= at_depth) return null;
+                if(self.branch_depth > (at_depth + infix_len)) {
+                    std.debug.print(">>> {d} {d} {d} {d}\n", .{self.branch_depth, at_depth, infix_len, self.range()});
+                }
                 return self.infix[(at_depth + infix_len) - self.branch_depth];
             }
 
@@ -1839,7 +1842,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-                return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+                const branch_node = try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+
+                return try WrapInfixNode(start_depth, key, branch_node, allocator);
             }
 
             fn mem_info(self: Head) MemInfo {
@@ -1956,7 +1961,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 const sibling_leaf_node = InitLeafOrTwigNode(key, value);
 
-                return try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+                const branch_node = try BranchNodeBase.initBranch(branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+
+                return try WrapInfixNode(start_depth, key, branch_node, allocator);
             }
 
             fn mem_info(self: Head) MemInfo {
