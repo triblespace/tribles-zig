@@ -1723,7 +1723,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                     return MemInfo{
                         .active_memory = @sizeOf(Body),
-                        .wasted_memory = 0, // TODO this could be more accurate with parent depth info.
+                        .wasted_memory = 0, // note that self.child_depth == child.range() by def.
                         .passive_memory = @sizeOf(Head),
                         .allocation_count = 1,
                     };
@@ -1852,7 +1852,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 return MemInfo{
                     .active_memory = 0,
-                    .wasted_memory = 0, // TODO this could be more accurate with parent depth info.
+                    .wasted_memory = 0,
                     .passive_memory = @sizeOf(Head),
                     .allocation_count = 0,
                 };
@@ -1971,7 +1971,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 return MemInfo{
                     .active_memory = 0,
-                    .wasted_memory = 0, // TODO this could be more accurate with parent depth info.
+                    .wasted_memory = 0,
                     .passive_memory = @sizeOf(Head),
                     .allocation_count = 0,
                 };

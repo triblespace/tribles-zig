@@ -139,7 +139,7 @@ pub fn benchmark_pact_small_write() !void {
     var tree = pact.PACT(&[_]u8{8}, u32).Tree.init();
     defer tree.deinit(std.heap.c_allocator);
 
-    std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
+    std.debug.print("Inserting {d} u64 into PACT.\n", .{data_size});
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
