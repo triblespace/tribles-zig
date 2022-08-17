@@ -798,11 +798,12 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         const BranchNodeBase = extern struct {
-            const infix_len = 1;
+            const head_infix_len = 1;
+            const body_infix_len = 1;
 
             tag: NodeTag = .branch1,
             /// The infix stored in this head.
-            infix: [infix_len]u8 = [_]u8{0} ** infix_len,
+            infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
             /// The branch depth of the body.
             branch_depth: u8,
             body: FarPointer(Body) align(1),
@@ -819,7 +820,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 padding: [2]u8 = undefined,
                 segment_count: u32 = 0,
                 node_hash: Hash = Hash{},
-                segment_minhash: MinHash = MinHash{},
+                infix: [body_infix_len]u8 = [_]u8{0} ** body_infix_len,
                 bucket: Bucket = Bucket{},
             };
 
@@ -844,8 +845,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 var new_head = Head{ .branch_depth = branch_depth, .body = FarPointer(Body).init(new_body) };
 
-                const used_infix_len = @minimum(branch_depth, infix_len);
-                mem.copy(u8, new_head.infix[infix_len - used_infix_len ..], key[branch_depth - used_infix_len .. branch_depth]);
+                const used_body_infix_len = @minimum(branch_depth, body_infix_len);
+                mem.copy(u8, new_body.infix[body_infix_len - used_body_infix_len ..], key[branch_depth - used_body_infix_len .. branch_depth]);
 
                 return new_head;
             }
@@ -913,15 +914,17 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn range(self: Head) u8 {
-                return self.branch_depth - @minimum(self.branch_depth, infix_len);
+                return self.branch_depth - @minimum(self.branch_depth, body_infix_len);
             }
 
             pub fn peek(self: Head, at_depth: u8) ?u8 {
+                const body = self.body.get();
+
                 if (self.branch_depth <= at_depth) return null;
-                if(self.branch_depth > (at_depth + infix_len)) {
-                    std.debug.print(">>> {d} {d} {d} {d}\n", .{self.branch_depth, at_depth, infix_len, self.range()});
+                if(self.branch_depth > (at_depth + body_infix_len)) {
+                    std.debug.print(">>> {d} {d} {d} {d}\n", .{self.branch_depth, at_depth, body_infix_len, self.range()});
                 }
-                return self.infix[(at_depth + infix_len) - self.branch_depth];
+                return body.infix[(at_depth + body_infix_len) - self.branch_depth];
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1095,12 +1098,13 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         fn BranchNode(comptime bucket_count: u8) type {
-            const infix_len = 1;
-
+            const head_infix_len = 1;
+            const body_infix_len = 1;
+            
             return extern struct {
                 tag: NodeTag = Node.branchNodeTag(bucket_count),
                 /// The infix stored in this head.
-                infix: [infix_len]u8 = [_]u8{0} ** infix_len,
+                infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
                 /// The branch depth of the body.
                 branch_depth: u8,
                 body: FarPointer(Body) align(1),
@@ -1117,7 +1121,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     padding: [2]u8 = undefined,
                     segment_count: u32 = 0,
                     node_hash: Hash = Hash{},
-                    segment_minhash: MinHash = MinHash{},
+                    infix: [body_infix_len]u8 = [_]u8{0} ** body_infix_len,
                     child_set: ByteBitset = ByteBitset.initEmpty(),
                     rand_hash_used: ByteBitset = ByteBitset.initEmpty(),
                     buckets: Buckets = if (bucket_count == 1) [_]Bucket{Bucket{}} else undefined,
@@ -1146,8 +1150,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                     var new_head = Head{ .branch_depth = branch_depth, .body = FarPointer(Body).init(new_body) };
 
-                    const used_infix_len = @minimum(branch_depth, infix_len);
-                    mem.copy(u8, new_head.infix[infix_len - used_infix_len ..], key[branch_depth - used_infix_len .. branch_depth]);
+                    const used_body_infix_len = @minimum(branch_depth, body_infix_len);
+                    mem.copy(u8, new_body.infix[body_infix_len - used_body_infix_len ..], key[branch_depth - used_body_infix_len .. branch_depth]);
 
                     return new_head;
                 }
@@ -1209,12 +1213,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn range(self: Head) u8 {
-                    return self.branch_depth - @minimum(self.branch_depth, infix_len);
+                    return self.branch_depth - @minimum(self.branch_depth, body_infix_len);
                 }
 
                 pub fn peek(self: Head, at_depth: u8) ?u8 {
+                    const body = self.body.get();
+
                     if (self.branch_depth <= at_depth) return null;
-                    return self.infix[(at_depth + infix_len) - self.branch_depth];
+                    return body.infix[(at_depth + body_infix_len) - self.branch_depth];
                 }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1488,7 +1494,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 const Body = extern struct {
                     child: Node = Node.none,
                     ref_count: u16 = 1,
-                    infix: [body_infix_len]u8 = undefined,
+                    infix: [body_infix_len]u8 = [_]u8{0} ** body_infix_len,
                 };
 
                 pub fn init(key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Head {

@@ -46,9 +46,9 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_pact_small_write();
+        //try benchmark_pact_small_write();
         //try benchmark_pact_cursor_iterate();
-        //try benchmark_tribleset_write();
+        try benchmark_tribleset_write();
         //try benchmark_commit();
     }
     //try benchmark_hashing();
