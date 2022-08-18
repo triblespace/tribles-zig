@@ -277,36 +277,36 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 };
             }
 
-            pub fn format(
-                self: Node,
-                comptime fmt: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = fmt;
-                _ = options;
+            // pub fn format(
+            //     self: Node,
+            //     comptime fmt: []const u8,
+            //     options: std.fmt.FormatOptions,
+            //     writer: anytype,
+            // ) !void {
+            //     _ = fmt;
+            //     _ = options;
 
-                switch (self.unknown.tag) {
-                    .none => try writer.print("none", .{}),
-                    .branch1 => try writer.print("{s}", .{self.branch1}),
-                    .branch2 => try writer.print("{s}", .{self.branch2}),
-                    .branch4 => try writer.print("{s}", .{self.branch4}),
-                    .branch8 => try writer.print("{s}", .{self.branch8}),
-                    .branch16 => try writer.print("{s}", .{self.branch16}),
-                    .branch32 => try writer.print("{s}", .{self.branch32}),
-                    .infix8 => try writer.print("{s}", .{self.infix8}),
-                    .infix16 => try writer.print("{s}", .{self.infix16}),
-                    .infix24 => try writer.print("{s}", .{self.infix24}),
-                    .infix32 => try writer.print("{s}", .{self.infix32}),
-                    .infix40 => try writer.print("{s}", .{self.infix40}),
-                    .infix48 => try writer.print("{s}", .{self.infix48}),
-                    .infix56 => try writer.print("{s}", .{self.infix56}),
-                    .infix64 => try writer.print("{s}", .{self.infix64}),
-                    .leaf => try writer.print("{s}", .{self.leaf}),
-                    .twig => try writer.print("{s}", .{self.twig}),
-                }
-                try writer.writeAll("");
-            }
+            //     switch (self.unknown.tag) {
+            //         .none => try writer.print("none", .{}),
+            //         .branch1 => try writer.print("{s}", .{self.branch1}),
+            //         .branch2 => try writer.print("{s}", .{self.branch2}),
+            //         .branch4 => try writer.print("{s}", .{self.branch4}),
+            //         .branch8 => try writer.print("{s}", .{self.branch8}),
+            //         .branch16 => try writer.print("{s}", .{self.branch16}),
+            //         .branch32 => try writer.print("{s}", .{self.branch32}),
+            //         .infix8 => try writer.print("{s}", .{self.infix8}),
+            //         .infix16 => try writer.print("{s}", .{self.infix16}),
+            //         .infix24 => try writer.print("{s}", .{self.infix24}),
+            //         .infix32 => try writer.print("{s}", .{self.infix32}),
+            //         .infix40 => try writer.print("{s}", .{self.infix40}),
+            //         .infix48 => try writer.print("{s}", .{self.infix48}),
+            //         .infix56 => try writer.print("{s}", .{self.infix56}),
+            //         .infix64 => try writer.print("{s}", .{self.infix64}),
+            //         .leaf => try writer.print("{s}", .{self.leaf}),
+            //         .twig => try writer.print("{s}", .{self.twig}),
+            //     }
+            //     try writer.writeAll("");
+            // }
 
             pub fn isNone(self: Node) bool {
                 return self.unknown.tag == .none;
@@ -684,7 +684,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
                 for (self.slots) |slot| {
-                    if (slot.unknown.tag != .none and ((slot.peek(depth).?) == byte_key)) {
+                    if (!slot.isNone() and ((slot.peek(depth).?) == byte_key)) {
                         return slot;
                     }
                 }
@@ -824,19 +824,19 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 bucket: Bucket = Bucket{},
             };
 
-            pub fn format(
-                self: Head,
-                comptime fmt: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = fmt;
-                _ = options;
+            // pub fn format(
+            //     self: Head,
+            //     comptime fmt: []const u8,
+            //     options: std.fmt.FormatOptions,
+            //     writer: anytype,
+            // ) !void {
+            //     _ = fmt;
+            //     _ = options;
 
-                _ = self;
+            //     _ = self;
 
-                try writer.writeAll("Branch One");
-            }
+            //     try writer.writeAll("Branch One");
+            // }
 
             pub fn init(branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
                 const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
@@ -846,7 +846,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 var new_head = Head{ .branch_depth = branch_depth, .body = FarPointer(Body).init(new_body) };
 
                 const used_body_infix_len = @minimum(branch_depth, body_infix_len);
+                mem.copy(u8, new_head.infix[body_infix_len - used_body_infix_len ..], key[branch_depth - used_body_infix_len .. branch_depth]);
                 mem.copy(u8, new_body.infix[body_infix_len - used_body_infix_len ..], key[branch_depth - used_body_infix_len .. branch_depth]);
+
+                std.debug.print("init:{any}:{any}\n", .{new_head.infix, new_head.body.get().infix});
 
                 return new_head;
             }
@@ -857,6 +860,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // Note that these can't fail.
                 _ = branch_node.createBranch(left, branch_depth, key);
                 _ = branch_node.createBranch(right, branch_depth, key);
+
+                std.debug.print("initBranch:{any}:{any}\n", .{branch_node.infix, branch_node.body.get().infix});
 
                 return @bitCast(Node, branch_node);
             }
@@ -924,7 +929,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 if(self.branch_depth > (at_depth + body_infix_len)) {
                     std.debug.print(">>> {d} {d} {d} {d}\n", .{self.branch_depth, at_depth, body_infix_len, self.range()});
                 }
-                return body.infix[(at_depth + body_infix_len) - self.branch_depth];
+                const head_infix = self.infix[(at_depth + body_infix_len) - self.branch_depth];
+                const body_infix = body.infix[(at_depth + body_infix_len) - self.branch_depth];
+
+                if(head_infix != body_infix) {
+                    std.debug.print("peek:{any}:{any}\n", .{self.infix, self.body.get().infix});
+                    std.debug.print(">>> {d} {d}\n{any}\n", .{head_infix, body_infix, self});
+                }
+                return head_infix;
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1129,19 +1141,19 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const Buckets = [bucket_count]Bucket;
                 };
 
-                pub fn format(
-                    self: Head,
-                    comptime fmt: []const u8,
-                    options: std.fmt.FormatOptions,
-                    writer: anytype,
-                ) !void {
-                    _ = fmt;
-                    _ = options;
-                    _ = self;
-                    //const card = cards.branchNodeCard(self);
-                    //try writer.print("{s}\n", .{card});
-                    try writer.writeAll("TODO");
-                }
+                // pub fn format(
+                //     self: Head,
+                //     comptime fmt: []const u8,
+                //     options: std.fmt.FormatOptions,
+                //     writer: anytype,
+                // ) !void {
+                //     _ = fmt;
+                //     _ = options;
+                //     _ = self;
+                //     //const card = cards.branchNodeCard(self);
+                //     //try writer.print("{s}\n", .{card});
+                //     try writer.writeAll("TODO");
+                // }
 
                 pub fn init(branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
                     const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
@@ -1151,6 +1163,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     var new_head = Head{ .branch_depth = branch_depth, .body = FarPointer(Body).init(new_body) };
 
                     const used_body_infix_len = @minimum(branch_depth, body_infix_len);
+                    mem.copy(u8, new_head.infix[body_infix_len - used_body_infix_len ..], key[branch_depth - used_body_infix_len .. branch_depth]);
                     mem.copy(u8, new_body.infix[body_infix_len - used_body_infix_len ..], key[branch_depth - used_body_infix_len .. branch_depth]);
 
                     return new_head;
@@ -1220,7 +1233,14 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const body = self.body.get();
 
                     if (self.branch_depth <= at_depth) return null;
-                    return body.infix[(at_depth + body_infix_len) - self.branch_depth];
+
+                    const head_infix = self.infix[(at_depth + body_infix_len) - self.branch_depth];
+                    const body_infix = body.infix[(at_depth + body_infix_len) - self.branch_depth];
+
+                    if(head_infix != body_infix) {
+                        std.debug.print(">>> {d} {d}\n{any}\n", .{head_infix, body_infix, self});
+                    }
+                    return head_infix;
                 }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1252,6 +1272,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         if (self.hasBranch(byte_key)) {
                             // The node already has a child branch with the same byte byte_key as the one in the key.
                             const old_child = self.getBranch(byte_key);
+                            if(old_child.isNone()) {
+                                std.debug.print("---\n{any}\n{any}\n", .{self, body});
+
+                            }
                             const old_child_hash = old_child.hash(key);
                             const old_child_leaf_count = old_child.count();
                             const old_child_segment_count = old_child.segmentCount(branch_depth);
@@ -1519,20 +1543,20 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     return new_head;
                 }
 
-                pub fn format(
-                    self: Head,
-                    comptime fmt: []const u8,
-                    options: std.fmt.FormatOptions,
-                    writer: anytype,
-                ) !void {
-                    _ = self;
-                    _ = fmt;
-                    _ = options;
-                    const body = self.body.get();
+                // pub fn format(
+                //     self: Head,
+                //     comptime fmt: []const u8,
+                //     options: std.fmt.FormatOptions,
+                //     writer: anytype,
+                // ) !void {
+                //     _ = self;
+                //     _ = fmt;
+                //     _ = options;
+                //     const body = self.body.get();
 
-                    try writer.print("{*} �{d}:\n", .{ body, body.ref_count });
-                    try writer.print("  infixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{ head_infix_len, body_infix_len, std.fmt.fmtSliceHexUpper(&self.infix), std.fmt.fmtSliceHexUpper(&body.infix) });
-                }
+                //     try writer.print("{*} �{d}:\n", .{ body, body.ref_count });
+                //     try writer.print("  infixes: {[2]s:_>[0]} > {[3]s:_>[1]}\n", .{ head_infix_len, body_infix_len, std.fmt.fmtSliceHexUpper(&self.infix), std.fmt.fmtSliceHexUpper(&body.infix) });
+                // }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
                     const body = self.body.get();
@@ -1764,17 +1788,17 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return new_head;
             }
 
-            pub fn format(
-                self: Head,
-                comptime fmt: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = self;
-                _ = fmt;
-                _ = options;
-                try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{ suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix) });
-            }
+            // pub fn format(
+            //     self: Head,
+            //     comptime fmt: []const u8,
+            //     options: std.fmt.FormatOptions,
+            //     writer: anytype,
+            // ) !void {
+            //     _ = self;
+            //     _ = fmt;
+            //     _ = options;
+            //     try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{ suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix) });
+            // }
 
             pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
                 _ = self;
@@ -1883,17 +1907,17 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return new_head;
             }
 
-            pub fn format(
-                self: Head,
-                comptime fmt: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = self;
-                _ = fmt;
-                _ = options;
-                try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{ suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix) });
-            }
+            // pub fn format(
+            //     self: Head,
+            //     comptime fmt: []const u8,
+            //     options: std.fmt.FormatOptions,
+            //     writer: anytype,
+            // ) !void {
+            //     _ = self;
+            //     _ = fmt;
+            //     _ = options;
+            //     try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{ suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix) });
+            // }
 
             pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
                 _ = self;
@@ -2107,21 +2131,21 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return Tree{ .child = (try self.child.ref(allocator)) orelse self.child };
             }
 
-            pub fn format(
-                self: Tree,
-                comptime fmt: []const u8,
-                options: std.fmt.FormatOptions,
-                writer: anytype,
-            ) !void {
-                _ = fmt;
-                _ = options;
+            // pub fn format(
+            //     self: Tree,
+            //     comptime fmt: []const u8,
+            //     options: std.fmt.FormatOptions,
+            //     writer: anytype,
+            // ) !void {
+            //     _ = fmt;
+            //     _ = options;
 
-                _ = self;
+            //     _ = self;
 
-                //const card = cards.treeCard(self);
-                //try writer.print("{s}\n", .{card});
-                try writer.writeAll("Tree");
-            }
+            //     //const card = cards.treeCard(self);
+            //     //try writer.print("{s}\n", .{card});
+            //     try writer.writeAll("Tree");
+            // }
 
             pub fn count(self: *const Tree) u64 {
                 return self.child.count();

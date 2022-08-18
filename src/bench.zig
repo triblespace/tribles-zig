@@ -56,13 +56,16 @@ pub fn main() !void {
 }
 
 pub fn benchmark_tribleset_write() !void {
-
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer { _ = gpa.deinit();}
+        
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var set = TribleSet.init(std.heap.c_allocator);
+    var set = TribleSet.init(allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
