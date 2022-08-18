@@ -23,17 +23,26 @@ fn FarPointer(comptime T: type) type {
         slot: u8,
         page: u32,
 
-        fn init(ptr: *T) @This() {
-            const addr = @ptrToInt(ptr);
-            return @This() {
+        fn init(ptr: *align(16) T) @This() {
+            const addr: usize = @ptrToInt(ptr);
+
+            const self = @This() {
                 .page = @truncate(u32, addr >> 12),
                 .slot = @truncate(u8, addr >> 4),
             };
+
+            const addr2 = 0b11100000000000000000000000000000000000000000000 + (@intCast(usize, self.page) << 12) + (@intCast(usize, self.slot) << 4);
+            
+            if(addr != addr2) {
+                std.debug.print("ptr: {b} {b} {b} {b}\n", .{addr, addr2, self.page, self.slot});
+            }
+
+            return self;
         }
 
-        fn get(self: @This()) *T {
-            const addr = (@intCast(u32, self.page) << 12) + (@intCast(u32, self.slot) << 4);
-            return @intToPtr(*T, addr);
+        fn get(self: @This()) *align(16) T {
+            const addr: usize = 0b11100000000000000000000000000000000000000000000 + (@intCast(usize, self.page) << 12) + (@intCast(usize, self.slot) << 4);
+            return @intToPtr(*align(16) T, addr);
         }
     };
 }
@@ -806,7 +815,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
             /// The branch depth of the body.
             branch_depth: u8,
-            body: FarPointer(Body) align(1),
+            body: FarPointer(Body),
 
             const Head = @This();
 
@@ -1119,7 +1128,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
                 /// The branch depth of the body.
                 branch_depth: u8,
-                body: FarPointer(Body) align(1),
+                body: FarPointer(Body),
 
                 const Head = @This();
 
@@ -1505,6 +1514,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         fn InfixNode(comptime infix_len: u8) type {
             const head_infix_len = 1;
             const body_infix_len = infix_len - head_infix_len;
+            const body_alignment = 16;
             return extern struct {
                 tag: NodeTag = Node.infixNodeTag(infix_len),
 
@@ -1512,7 +1522,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
 
-                body: FarPointer(Body) align(1),
+                body: FarPointer(Body),
 
                 const Head = @This();
                 const Body = extern struct {
@@ -1522,7 +1532,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 };
 
                 pub fn init(key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+                    const allocation = try allocator.allocAdvanced(u8, body_alignment, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                     new_body.* = Body{ .child = child };
@@ -1561,7 +1571,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
                     const body = self.body.get();
 
-                    const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+                    const allocation = try allocator.allocAdvanced(u8, body_alignment, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = body.*;
                     new_body.ref_count = 1;
@@ -1716,7 +1726,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         }
 
                         if (new_child.range() != (self.child_depth)) { // TODO We could check if this changes the infix length and save the allocation on single_owner.
-                            return try WrapInfixNode(start_depth, key, new_child, allocator);
+                            const wrapped_child = try WrapInfixNode(start_depth, key, new_child, allocator);
+                            if(single_owner) {
+                                allocator.free(std.mem.asBytes(body));
+                            }
+                            return wrapped_child;
                         }
 
                         var self_or_copy = self;
