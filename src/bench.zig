@@ -4,7 +4,7 @@ const std = @import("std");
 const testing = std.testing;
 const time = std.time;
 
-const coz = @import("./coz.zig");
+//const coz = @import("./coz.zig");
 
 const Trible = @import("Trible.zig").Trible;
 const pact = @import("./PACT.zig");
@@ -12,12 +12,14 @@ const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
 const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 const commit = @import("./commit.zig");
+//const FUCID = @import("./FUCID.zig");
+
 
 const sample_size: usize = 1;
 var data_size: usize = 1000;
-const change_prob = 0.01;
+const change_prob = 0.1;
 
-const PACT = pact.PACT(&[_]u8{16, 16, 32}, u64);
+const PACT = pact.PACT(&[_]u8{16, 16, 32}, u32);
 
 pub fn main() !void {
     const params = comptime [_]clap.Param(clap.Help){
@@ -44,20 +46,26 @@ pub fn main() !void {
     pact.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
+        //try benchmark_pact_small_write();
+        //try benchmark_pact_cursor_iterate();
         try benchmark_tribleset_write();
+        //try benchmark_commit();
     }
     //try benchmark_hashing();
     //try benchmark_std();
 }
 
 pub fn benchmark_tribleset_write() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    const allocator = gpa.allocator();
+    defer { _ = gpa.deinit();}
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var set = TribleSet.init(std.heap.c_allocator);
+    var set = TribleSet.init(allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
@@ -65,7 +73,7 @@ pub fn benchmark_tribleset_write() !void {
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
 
-    coz.begin("insert");
+    //coz.begin("insert");
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
         //const value = rnd.int(usize);
@@ -73,11 +81,11 @@ pub fn benchmark_tribleset_write() !void {
         timer.reset();
 
         try set.put(&t);
-        coz.progress("put");
+        //cpz.progress("put");
 
         t_total += timer.lap();
     }
-    coz.end("insert");
+    //coz.end("insert");
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
 
@@ -92,14 +100,14 @@ pub fn benchmark_pact_write() !void {
     var rnd = std.rand.DefaultPrng.init(0).random();
 
     var tree = PACT.Tree.init();
-    defer tree.deinit();
+    defer tree.deinit(std.heap.c_allocator);
 
     std.debug.print("Inserting {d} tribles into PACT.\n", .{data_size});
 
     var i: u64 = 0;
     var t = Trible.initAribitrary(rnd);
 
-    coz.begin("insert");
+    //coz.begin("insert");
     while (i < data_size) : (i += 1) {
         t = Trible.initAribitraryLike(rnd, change_prob, t);
         //const value = rnd.int(usize);
@@ -107,11 +115,11 @@ pub fn benchmark_pact_write() !void {
         timer.reset();
 
         try tree.put(t.data, null, std.heap.c_allocator);
-        coz.progress("put");
+        //cpz.progress("put");
 
         t_total += timer.lap();
     }
-    coz.end("insert");
+    //coz.end("insert");
 
     std.debug.print("Inserted {d} with {d} unique in {d}ns\n", .{ i, tree.count(), t_total });
 
@@ -122,6 +130,52 @@ pub fn benchmark_pact_write() !void {
     //     std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
     // }
 
+}
+
+pub fn benchmark_pact_small_write() !void {
+
+    var timer = try time.Timer.start();
+    var t_total: u64 = 0;
+
+    var rnd = std.rand.DefaultPrng.init(0).random();
+
+    var tree = pact.PACT(&[_]u8{8}, u32).Tree.init();
+    defer tree.deinit(std.heap.c_allocator);
+
+    std.debug.print("Inserting {d} u64 into PACT.\n", .{data_size});
+
+    var i: u64 = 0;
+    var t = Trible.initAribitrary(rnd);
+    
+    //coz.begin("insert");
+    while (i < data_size) : (i += 1) {
+        t = Trible.initAribitraryLike(rnd, change_prob, t);
+        //const value = rnd.int(usize);
+
+        timer.reset();
+
+        const le_bytes = std.mem.asBytes(&i)[0..8].*;
+        const be_bytes = [8]u8{le_bytes[7],
+                               le_bytes[6],
+                               le_bytes[5],
+                               le_bytes[4],
+                               le_bytes[3],
+                               le_bytes[2],
+                               le_bytes[1],
+                               le_bytes[0]};
+
+        try tree.put(be_bytes, null, std.heap.c_allocator);
+        //cpz.progress("put");
+
+        t_total += timer.lap();
+    }
+    //coz.end("insert");
+
+    std.debug.print("Inserted {d} with {d} unique in {d}ns\n", .{ i, tree.count(), t_total });
+
+    //std.debug.print("{s}\n", .{tree});
+
+    std.debug.print("{s}\n", .{tree.mem_info()});
 }
 
 const union_tree_count = 1000;
@@ -226,14 +280,14 @@ pub fn benchmark_pact_nodes_iterate() !void {
 
     std.debug.print("Iterating nodes of PACT with {d} tribles.\n", .{data_size});
     timer.reset();
-    coz.begin("iterate");
+    //coz.begin("iterate");
     var j: u64 = 0;
     var iter = tree._nodes();
     while(iter.next()) |_| {
         j += 1;
-        coz.progress("next");
+        //coz.progress("next");
     }
-    coz.end("iterate");
+    //coz.end("iterate");
     t_total += timer.lap();
 
     std.debug.print("Iterated {d} in {d}ns\n", .{ j, t_total });
@@ -248,7 +302,7 @@ pub fn benchmark_pact_cursor_iterate() !void {
     var rnd = std.rand.DefaultPrng.init(0).random();
 
     var tree = PACT.Tree.init();
-    defer tree.deinit();
+    defer tree.deinit(std.heap.c_allocator);
 
     var t = Trible.initAribitrary(rnd);
 
@@ -261,14 +315,14 @@ pub fn benchmark_pact_cursor_iterate() !void {
 
     std.debug.print("Iterating cursor of PACT with {d} tribles.\n", .{data_size});
     timer.reset();
-    coz.begin("iterate");
+    //coz.begin("iterate");
     var j: u64 = 0;
     var iter = tree.cursor().iterate();
     while(iter.next()) |_| {
         j += 1;
-        coz.progress("next");
+        //coz.progress("next");
     }
-    coz.end("iterate");
+    //coz.end("iterate");
     t_total += timer.lap();
 
     std.debug.print("Iterated {d} of {d} in {d}ns\n", .{ j, tree.count(), t_total });
@@ -328,14 +382,14 @@ pub fn benchmark_std() !void {
 
     std.debug.print("Iterating {d} tribles in AutoHashMap.\n", .{data_size});
     timer.reset();
-    coz.begin("iterate");
+    //coz.begin("iterate");
     var j: u64 = 0;
     var iter = map.iterator();
     while(iter.next()) |_| {
         j += 1;
-        coz.progress("next");
+        //coz.progress("next");
     }
-    coz.end("iterate");
+    //coz.end("iterate");
     t_total += timer.lap();
 
     std.debug.print("Iterated {d} in {d}ns\n", .{ j, t_total });
@@ -347,6 +401,8 @@ pub fn benchmark_commit() !void {
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
+
+    //FUCID.init(rnd);
 
     var set = TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
@@ -375,24 +431,24 @@ pub fn benchmark_commit() !void {
     var commit_id: [16]u8 = undefined;
     rnd.bytes(commit_id[0..]);
 
-    coz.begin("create_commit");
+    //cpz.begin("create_commit");
     timer.reset();
 
     const com = try commit.Commit.initFromTribles(keypair, commit_id, set, std.heap.c_allocator);
 
     t_total = timer.lap();
-    coz.end("create_commit");
+    //cpz.end("create_commit");
 
     std.debug.print("Created commit for {d} triple in {d}ns\n", .{ i, t_total });
 
-    coz.begin("load_commit");
+    //cpz.begin("load_commit");
 
     timer.reset();
     var read_set = try com.toTriblesetSet(std.heap.c_allocator);
     defer read_set.deinit();
 
     t_total = timer.lap();
-    coz.end("load_commit");
+    //cpz.end("load_commit");
 
     try com.deinit(std.heap.c_allocator);
 

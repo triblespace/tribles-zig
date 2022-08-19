@@ -1008,7 +1008,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 new_body.ref_count = 1;
 
                 var new_head = self;
-                new_head.body = self.body;
+                new_head.body = new_body;
 
                 for (new_head.body.bucket.slots) |*child| {
                     if (!child.isNone()) {
@@ -1275,7 +1275,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     new_body.ref_count = 1;
 
                     var new_head = self;
-                    new_head.body = self.body;
+                    new_head.body = new_body;
 
                     var child_iterator = new_body.child_set;
                     while (child_iterator.drainNextAscending()) |child_byte_key| {
@@ -1611,7 +1611,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         }
 
                         if (new_child.range() != (self.child_depth)) { // TODO We could check if this changes the infix length and save the allocation on single_owner.
-                            return try WrapInfixNode(start_depth, key, new_child, allocator);
+                            const wrapped_child = try WrapInfixNode(start_depth, key, new_child, allocator);
+                            if(single_owner) {
+                                allocator.free(std.mem.asBytes(body));
+                            }
+                            return wrapped_child;
                         }
 
                         var self_or_copy = self;
