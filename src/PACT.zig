@@ -1613,7 +1613,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         if (new_child.range() != (self.child_depth)) { // TODO We could check if this changes the infix length and save the allocation on single_owner.
                             const wrapped_child = try WrapInfixNode(start_depth, key, new_child, allocator);
                             if(single_owner) {
-                                allocator.free(std.mem.asBytes(body));
+                                allocator.free(std.mem.asBytes(self.body));
                             }
                             return wrapped_child;
                         }
