@@ -17,15 +17,15 @@ pub fn main() !void {
     PACT.init();
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
-        try benchmark_pact_write();
+        try benchmark_tribleset_write();
     }
     //try benchmark_hashing();
     //try benchmark_std();
 }
 
 pub fn benchmark_tribleset_write() !void {
-    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
-    defer _ = arena.deinit();
+    //var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    // _ = arena.deinit();
     //var gp = std.heap.GeneralPurposeAllocator(.{}){};
     //defer _ = gp.deinit();
 
@@ -34,7 +34,7 @@ pub fn benchmark_tribleset_write() !void {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var set = TribleSet.init(arena.allocator());
+    var set = TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
@@ -58,7 +58,7 @@ pub fn benchmark_tribleset_write() !void {
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
 
-    //std.debug.print("{s}\n", .{set});
+    std.debug.print("{s}\n", .{set});
 }
 
 pub fn benchmark_pact_write() !void {

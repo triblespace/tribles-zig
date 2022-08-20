@@ -19,9 +19,6 @@ pub const TribleSet = struct {
     ave: PACT.Tree,
     vea: PACT.Tree,
     vae: PACT.Tree,
-    eIsA: PACT.Tree, // Same order as EAV
-    eIsV: PACT.Tree, // Same order as EAV
-    aIsV: PACT.Tree, // Same order as AEV
 
     pub fn init(allocator: std.mem.Allocator) TribleSet {
         return TribleSet{
@@ -31,9 +28,6 @@ pub const TribleSet = struct {
             .ave = PACT.Tree.init(allocator),
             .vea = PACT.Tree.init(allocator),
             .vae = PACT.Tree.init(allocator),
-            .eIsA = PACT.Tree.init(allocator),
-            .eIsV = PACT.Tree.init(allocator),
-            .aIsV = PACT.Tree.init(allocator),
         };
     }
 
@@ -44,9 +38,6 @@ pub const TribleSet = struct {
         self.ave.deinit();
         self.vea.deinit();
         self.vae.deinit();
-        self.eIsA.deinit();
-        self.eIsV.deinit();
-        self.aIsV.deinit();
     }
 
     pub fn fork(self: *TribleSet) allocError!TribleSet {
@@ -57,9 +48,6 @@ pub const TribleSet = struct {
             .ave = self.ave.fork(),
             .vea = self.vea.fork(),
             .vae = self.vae.fork(),
-            .eIsA = self.eIsA.fork(),
-            .eIsV = self.eIsV.fork(),
-            .aIsV = self.aIsV.fork(),
         };
     }
 
@@ -74,23 +62,5 @@ pub const TribleSet = struct {
         try self.ave.put(trible.ordered(.ave), null);
         try self.vea.put(trible.ordered(.vea), null);
         try self.vae.put(trible.ordered(.vae), null);
-
-        const e_data = trible.e();
-        const a_data = trible.a();
-        const v1_data = trible.v1();
-        const v2_data = trible.v2();
-        const eIsA = std.mem.eql(u8, &e_data, &a_data);
-        const eIsV = isZeroes(v1_data) and std.mem.eql(u8, &e_data, &v2_data);
-        const aIsV = isZeroes(v1_data) and std.mem.eql(u8, &a_data, &v2_data);
-
-        if (eIsA) {
-          try self.eIsA.put(trible.ordered(.eav), null);
-        }
-        if (eIsV) {
-          try self.eIsV.put(trible.ordered(.eav), null);
-        }
-        if (aIsV) {
-          try self.aIsV.put(trible.ordered(.aev), null);
-        }
     }
 };
