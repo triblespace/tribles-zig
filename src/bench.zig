@@ -17,7 +17,7 @@ const commit = @import("./commit.zig");
 
 const sample_size: usize = 1;
 var data_size: usize = 1000;
-const change_prob = 0.1;
+const change_prob = 0.01;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u32);
 
@@ -48,8 +48,8 @@ pub fn main() !void {
     while (i < sample_size) : (i += 1) {
         //try benchmark_pact_small_write();
         //try benchmark_pact_cursor_iterate();
-        try benchmark_pact_write();
-        //try benchmark_tribleset_write();
+        //try benchmark_pact_write();
+        try benchmark_tribleset_write();
         //try benchmark_commit();
     }
     //try benchmark_hashing();
@@ -57,16 +57,16 @@ pub fn main() !void {
 }
 
 pub fn benchmark_tribleset_write() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
-    defer { _ = gpa.deinit();}
+    //var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+    //const allocator = gpa.allocator();
+    //defer { _ = gpa.deinit();}
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var set = TribleSet.init(allocator);
+    var set = TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
@@ -89,6 +89,7 @@ pub fn benchmark_tribleset_write() !void {
     //coz.end("insert");
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
+    std.debug.print("{s}\n", .{set.mem_info()});
 
     std.debug.print("{s}\n", .{set});
 }
