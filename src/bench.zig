@@ -48,7 +48,8 @@ pub fn main() !void {
     while (i < sample_size) : (i += 1) {
         //try benchmark_pact_small_write();
         //try benchmark_pact_cursor_iterate();
-        try benchmark_tribleset_write();
+        try benchmark_pact_write();
+        //try benchmark_tribleset_write();
         //try benchmark_commit();
     }
     //try benchmark_hashing();
@@ -89,7 +90,7 @@ pub fn benchmark_tribleset_write() !void {
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
 
-    std.debug.print("{s}\n", .{set.mem_info()});
+    std.debug.print("{s}\n", .{set});
 }
 
 pub fn benchmark_pact_write() !void {
@@ -114,6 +115,11 @@ pub fn benchmark_pact_write() !void {
 
         timer.reset();
 
+        // var node_iter = tree.nodes();
+        // while(node_iter.next()) |res| {
+        //     std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
+        // }
+
         try tree.put(t.data, null, std.heap.c_allocator);
         //cpz.progress("put");
 
@@ -123,13 +129,12 @@ pub fn benchmark_pact_write() !void {
 
     std.debug.print("Inserted {d} with {d} unique in {d}ns\n", .{ i, tree.count(), t_total });
 
+    var node_iter = tree.nodes();
+    while(node_iter.next()) |res| {
+         std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
+    }
+
     std.debug.print("{s}\n", .{tree});
-
-    // var node_iter = tree.nodes();
-    // while(node_iter.next()) |res| {
-    //     std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
-    // }
-
 }
 
 pub fn benchmark_pact_small_write() !void {

@@ -9,7 +9,20 @@ pub fn init() void {
 }
 
 pub const Hash = extern struct {
-    data: @Vector(4, u32) = @Vector(4, u32){ 0, 0, 0, 0 },
+    data: @Vector(16, u8) = @Vector(16, u8){ 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0 },
+
+    pub fn format(
+        self: Hash,
+        comptime fmt: []const u8,
+        options: std.fmt.FormatOptions,
+        writer: anytype,
+    ) !void {
+        _ = fmt;
+        _ = options;
+
+        const arr: [16]u8 = self.data;
+        try writer.print("{s}", .{std.fmt.fmtSliceHexUpper(arr[0..])});
+    }
 
     pub fn init(key: []const u8) Hash {
         const siphash_strong = comptime std.hash.SipHash128(2, 4);

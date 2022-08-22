@@ -4,7 +4,6 @@ const expectEqual = std.testing.expectEqual;
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 const Card = @import("Card.zig").Card;
 const MemInfo = @import("./MemInfo.zig").MemInfo;
-const cards = @import("./PACT/cards.zig");
 const hash = @import("./PACT/Hash.zig");
 const query = @import("./query.zig");
 const Hash = hash.Hash;
@@ -966,12 +965,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn peek(self: Head, at_depth: u8) ?u8 {
-                if (at_depth < self.start_depth) return null;
+                if (at_depth < self.start_depth or self.branch_depth <= at_depth) return null;
                 if (at_depth < self.start_depth + head_infix_len)
                     return self.infix[index_start(self.start_depth, at_depth)];
-                if (at_depth < self.branch_depth)
-                    return self.body.infix[index_end(body_infix_len, self.branch_depth, at_depth)];
-                return null;
+                return self.body.infix[index_end(body_infix_len, self.branch_depth, at_depth)];  
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1175,10 +1172,115 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 ) !void {
                     _ = fmt;
                     _ = options;
-                    _ = self;
-                    //const card = cards.branchNodeCard(self);
-                    //try writer.print("{s}\n", .{card});
-                    try writer.writeAll("TODO");
+                            
+                    var card = (Card.init(std.heap.c_allocator) catch @panic("Error allocating card!")).from(
+\\┌────────────────────────────────────────────────────────────────────────────────┐
+\\│ Branch Node @░░░░░░░░░░░░░░░░                                                  │
+\\│━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━                                                  │
+\\│                                                                                │
+\\│ Metadata                                                                       │
+\\│ ═════════                                                                      │
+\\│                                                                                │
+\\│    Ref#: ░░░░░                                  Leafs: ░░░░░░░░░░░░░░░░░░░░    │
+\\│    Hash: ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░    Segments: ░░░░░░░░░░░░░░░░░░░░    │
+\\│                                                                                │
+\\│ Infix                                                                          │
+\\│ ══════                                                                         │
+\\│         ┌──────────────────────────┐                                           │
+\\│         ▼                          │                                           │
+\\│   Head: ░░░░░░░░░░   Start depth: ░░░              Branch depth: ░░░────┐      │
+\\│         ▔▔  ▔▔  ▔▔                                                      ▼      │
+\\│   Body: ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░       │
+\\│         ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔  ▔▔         │
+\\│ Children                                                                       │
+\\│ ══════════                                                                     │
+\\│                                         0123456789ABCDEF     0123456789ABCDEF  │
+\\│  ▼                                     ┌────────────────┐   ┌────────────────┐ │
+\\│  ┌           ● Seq Hash      ░░░     0_│░░░░░░░░░░░░░░░░│ 8_│░░░░░░░░░░░░░░░░│ │
+\\│  │░          ◆ Rand Hash     ░░░     1_│░░░░░░░░░░░░░░░░│ 9_│░░░░░░░░░░░░░░░░│ │
+\\│  │░          ○ Seq Missing   ░░░     2_│░░░░░░░░░░░░░░░░│ A_│░░░░░░░░░░░░░░░░│ │
+\\│  │░░         ◇ Rand Missing  ░░░     3_│░░░░░░░░░░░░░░░░│ B_│░░░░░░░░░░░░░░░░│ │
+\\│  │░░░░                               4_│░░░░░░░░░░░░░░░░│ C_│░░░░░░░░░░░░░░░░│ │
+\\│  │░░░░░░░░                           5_│░░░░░░░░░░░░░░░░│ D_│░░░░░░░░░░░░░░░░│ │
+\\│  │░░░░░░░░░░░░░░░░                   6_│░░░░░░░░░░░░░░░░│ E_│░░░░░░░░░░░░░░░░│ │
+\\│  │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   7_│░░░░░░░░░░░░░░░░│ F_│░░░░░░░░░░░░░░░░│ │
+\\│  └                                     └────────────────┘   └────────────────┘ │
+\\└────────────────────────────────────────────────────────────────────────────────┘
+                    ) catch unreachable;
+                    defer card.deinit();
+
+                    card.labelFmt(14, 0, "{x:0>16}", .{@ptrToInt(self.body)}) catch @panic("Error writing to card!");
+                    
+                    card.labelFmt(10, 6, "{d:_>5}", .{self.body.ref_count}) catch @panic("Error writing to card!");
+                    card.labelFmt(10, 7, "{s:_>32}", .{self.body.node_hash}) catch @panic("Error writing to card!");
+                    card.labelFmt(56, 6, "{d:_>20}", .{self.body.leaf_count}) catch @panic("Error writing to card!");
+                    card.labelFmt(56, 7, "{d:_>20}", .{self.body.segment_count}) catch @panic("Error writing to card!");
+
+                    card.labelFmt(35, 13,  "{d:_>3}",  .{self.start_depth}) catch @panic("Error writing to card!");
+                    card.labelFmt(66, 13,  "{d:_>3}",  .{self.branch_depth}) catch @panic("Error writing to card!");
+                    card.labelFmt( 9, 13, "{s:_>10}", .{std.fmt.fmtSliceHexUpper(&self.infix)}) catch @panic("Error writing to card!");
+                    card.labelFmt( 9, 15, "{s:_>64}", .{std.fmt.fmtSliceHexUpper(&self.body.infix)}) catch @panic("Error writing to card!");
+
+                    card.label( 3, 22, if (bucket_count >= 1) "█" else "░") catch @panic("Error writing to card!");
+                    card.label( 3, 23, if (bucket_count >= 2) "█" else "░") catch @panic("Error writing to card!");
+                    card.label( 3, 24, if (bucket_count >= 4) "█"**2 else "░"**2) catch @panic("Error writing to card!");
+                    card.label( 3, 25, if (bucket_count >= 8) "█"**4 else "░"**4) catch @panic("Error writing to card!");
+                    card.label( 3, 26, if (bucket_count >= 16) "█"**8 else "░"**8) catch @panic("Error writing to card!");
+                    card.label( 3, 27, if (bucket_count >= 32) "█"**16 else "░"**16) catch @panic("Error writing to card!");
+                    card.label( 3, 28, if (bucket_count >= 64) "█"**32 else "░"**32) catch @panic("Error writing to card!");
+
+                    var seq_child_count: usize = 0;
+                    var rand_child_count: usize = 0;   
+                    var seq_miss_child_count: usize = 0;                 
+                    var rand_miss_child_count: usize = 0;   
+
+                    const children_map_start_y: usize = 21;
+                    const children_map_left_start_x: usize = 41;
+                    const children_map_right_start_x: usize = 62;
+
+                    var byte_key: usize = 0;
+                    while(byte_key < 256):(byte_key += 1) {
+                        const byte_key_u8 = @truncate(u8, byte_key);
+
+                        const x: usize = if(byte_key < 128) (byte_key & 0b1111) + children_map_left_start_x
+                                         else (byte_key & 0b1111) + children_map_right_start_x;
+                        const y: usize = ((byte_key >> 4) & 0b111) + children_map_start_y;
+
+                        if (!self.body.child_set.isSet(byte_key_u8)) {
+                            card.at(x, y).* = ' ';
+                            continue;
+                        }
+
+                        const rand_hash_used = self.body.rand_hash_used.isSet(byte_key_u8);
+
+                        const bucket_index = hashByteKey(rand_hash_used, bucket_count, byte_key_u8);
+                        const entry_was_found = !self.body.buckets[bucket_index].get(self.branch_depth, byte_key_u8).isNone();
+
+                        if (entry_was_found) {
+                            if (rand_hash_used) {
+                                    rand_child_count += 1;
+                                    card.at(x, y).* = '◆';
+                                } else {
+                                    seq_child_count += 1;
+                                    card.at(x, y).* = '●';
+                                }
+                        } else {
+                            if (rand_hash_used) {
+                                card.at(x, y).* = '◇';
+                                rand_miss_child_count += 1;
+                             } else {
+                                card.at(x, y).* = '○';
+                                seq_miss_child_count += 1;
+                             }
+                        }
+                    }
+
+                    card.labelFmt(30, 21,  "{d:_>3}",  .{seq_child_count}) catch @panic("Error writing to card!");
+                    card.labelFmt(30, 22,  "{d:_>3}",  .{rand_child_count}) catch @panic("Error writing to card!");
+                    card.labelFmt(30, 23,  "{d:_>3}",  .{seq_miss_child_count}) catch @panic("Error writing to card!");
+                    card.labelFmt(30, 24,  "{d:_>3}",  .{rand_miss_child_count}) catch @panic("Error writing to card!");
+
+                    try writer.print("{s}\n", .{card});
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
@@ -1256,12 +1358,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn peek(self: Head, at_depth: u8) ?u8 {
-                    if (at_depth < self.start_depth) return null;
+                    if (at_depth < self.start_depth or self.branch_depth <= at_depth) return null;
                     if (at_depth < self.start_depth + head_infix_len)
                         return self.infix[index_start(self.start_depth, at_depth)];
-                    if (at_depth < self.branch_depth)
-                        return self.body.infix[index_end(body_infix_len, self.branch_depth, at_depth)];
-                    return null;
+                    return self.body.infix[index_end(body_infix_len, self.branch_depth, at_depth)];    
                 }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1620,13 +1720,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn peek(self: Head, at_depth: u8) ?u8 {
-                    if (at_depth < self.start_depth) return null;
+                    if (at_depth < self.start_depth or self.child_depth <= at_depth) return null;
                     if (at_depth < self.start_depth + head_infix_len)
                         return self.infix[index_start(self.start_depth, at_depth)];
-                    if (at_depth < self.child_depth)
-                        return self.body.infix[index_end(body_infix_len, self.child_depth, at_depth)];
-                    return null;
-                }
+                    return self.body.infix[index_end(body_infix_len, self.child_depth, at_depth)];                }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
                     result_set.unsetAll();
@@ -1987,6 +2084,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     var node = self.path[start_depth];
 
                     var branch_depth = start_depth;
+
                     infix: while (branch_depth < key_length) : (branch_depth += 1) {
                         self.key[branch_depth] = node.peek(branch_depth) orelse break :infix;
                     } else {
@@ -2017,7 +2115,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
             };
 
-            pub fn _nodes(self: *const Tree) NodeIterator {
+            pub fn nodes(self: *const Tree) NodeIterator {
                 var iterator = NodeIterator{};
                 if (self.child.unknown.tag != .none) {
                     iterator.start_points.set(0);
@@ -2099,11 +2197,153 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 _ = fmt;
                 _ = options;
 
-                _ = self;
+                var card = (Card.init(std.heap.c_allocator) catch @panic("Failed to allocate card!")).from(
+            \\┌────────────────────────────────────────────────────────────────────────────────┐
+            \\│ Tree                                                                           │
+            \\│━━━━━━                                                                          │
+            \\│        Count: ░░░░░░░░░░░░░░░░      Memory (keys): ░░░░░░░░░░░░░░░░            │
+            \\│   Node Count: ░░░░░░░░░░░░░░░░    Memory (actual): ░░░░░░░░░░░░░░░░            │
+            \\│  Alloc Count: ░░░░░░░░░░░░░░░░   Overhead (ratio): ░░░░░░░░░░░░░░░░            │
+            \\│                                                                                │
+            \\│  Node Distribution                                                             │
+            \\│ ═══════════════════                                                            │
+            \\│                                                                                │
+            \\│                                                      infix8 ░░░░░░░░░░░░░░░░   │
+            \\│                           branch1 ░░░░░░░░░░░░░░░░  infix16 ░░░░░░░░░░░░░░░░   │
+            \\│                           branch2 ░░░░░░░░░░░░░░░░  infix24 ░░░░░░░░░░░░░░░░   │
+            \\│                           branch4 ░░░░░░░░░░░░░░░░  infix32 ░░░░░░░░░░░░░░░░   │
+            \\│                           branch8 ░░░░░░░░░░░░░░░░  infix40 ░░░░░░░░░░░░░░░░   │
+            \\│   none ░░░░░░░░░░░░░░░░  branch16 ░░░░░░░░░░░░░░░░  infix48 ░░░░░░░░░░░░░░░░   │
+            \\│   leaf ░░░░░░░░░░░░░░░░  branch32 ░░░░░░░░░░░░░░░░  infix56 ░░░░░░░░░░░░░░░░   │
+            \\│   twig ░░░░░░░░░░░░░░░░  branch64 ░░░░░░░░░░░░░░░░  infix64 ░░░░░░░░░░░░░░░░   │
+            \\│                                                                                │
+            \\│  Density                                                                       │
+            \\│ ═════════                                                                      │
+            \\│                                                                                │
+            \\│       ┐░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       │░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       ┘░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░        │
+            \\│       0┌──────────────┬───────────────┬───────────────┬───────────────┐63      │
+            \\└────────────────────────────────────────────────────────────────────────────────┘
+                ) catch unreachable;
+                defer card.deinit();
 
-                //const card = cards.treeCard(self);
-                //try writer.print("{s}\n", .{card});
-                try writer.writeAll("Tree");
+                const item_count = self.count();
+
+                var node_count: u64 = 0;
+
+                var mem_keys: u64 = item_count * key_length;
+
+                var none_count: u64 = 0;
+                var twig_count: u64 = 0;
+                var leaf_count: u64 = 0;
+                var branch_1_count: u64 = 0;
+                var branch_2_count: u64 = 0;
+                var branch_4_count: u64 = 0;
+                var branch_8_count: u64 = 0;
+                var branch_16_count: u64 = 0;
+                var branch_32_count: u64 = 0;
+                var branch_64_count: u64 = 0;
+                var infix_8_count: u64 = 0;
+                var infix_16_count: u64 = 0;
+                var infix_24_count: u64 = 0;
+                var infix_32_count: u64 = 0;
+                var infix_40_count: u64 = 0;
+                var infix_48_count: u64 = 0;
+                var infix_56_count: u64 = 0;
+                var infix_64_count: u64 = 0;
+
+                var density_at_depth: [key_length]u64 = [_]u64{0} ** key_length;
+
+                var node_iter = self.nodes();
+                while (node_iter.next()) |res| {
+                    node_count += 1;
+                    density_at_depth[res.start_depth] += 1;
+                    switch (res.node.unknown.tag) {
+                        .none => {none_count += 1;},
+                        .leaf => {leaf_count += 1;},
+                        .twig => {twig_count += 1;},
+                        .branch1 => {branch_1_count += 1;},
+                        .branch2 => {branch_2_count += 1;},
+                        .branch4 => {branch_4_count += 1;},
+                        .branch8 => {branch_8_count += 1;},
+                        .branch16 => {branch_16_count += 1;},
+                        .branch32 => {branch_32_count += 1;},
+                        .branch64 => {branch_64_count += 1;},
+                        .infix8 => {infix_8_count += 1;},
+                        .infix16 => {infix_16_count += 1;},
+                        .infix24 => {infix_24_count += 1;},
+                        .infix32 => {infix_32_count += 1;},
+                        .infix40 => {infix_40_count += 1;},
+                        .infix48 => {infix_48_count += 1;},
+                        .infix56 => {infix_56_count += 1;},
+                        .infix64 => {infix_64_count += 1;},
+                    }
+                }
+
+                var max_density: u64 = 0;
+                for (density_at_depth) |density| {
+                    max_density = std.math.max(max_density, density);
+                }
+
+                const mem_info_data = self.mem_info(); 
+
+                const mem_overhead: f64 = (@intToFloat(f64, mem_info_data.active_memory)
+                                        - @intToFloat(f64, mem_keys))
+                                        / @intToFloat(f64, mem_keys);
+
+                card.labelFmt(15, 2, "{d:_>16}", .{ item_count }) catch @panic("Error printing card!");
+                card.labelFmt(15, 3, "{d:_>16}", .{node_count}) catch @panic("Error printing card!");
+                card.labelFmt(15, 4, "{d:_>16}", .{mem_info_data.allocation_count}) catch @panic("Error printing card!");
+
+                card.labelFmt(52, 2, "{d:_>16}", .{mem_keys}) catch @panic("Error printing card!");
+                card.labelFmt(52, 3, "{d:_>16}", .{mem_info_data.active_memory}) catch @panic("Error printing card!");
+                card.labelFmt(52, 4, "{d:_>16}", .{mem_overhead}) catch @panic("Error printing card!");
+
+                card.labelFmt(8, 14, "{d:_>16}", .{none_count}) catch @panic("Error printing card!");
+                card.labelFmt(8, 15, "{d:_>16}", .{leaf_count}) catch @panic("Error printing card!");
+                card.labelFmt(8, 16, "{d:_>16}", .{twig_count}) catch @panic("Error printing card!");
+
+                card.labelFmt(35, 10, "{d:_>16}", .{branch_1_count}) catch @panic("Error printing card!");
+                card.labelFmt(35, 11, "{d:_>16}", .{branch_2_count}) catch @panic("Error printing card!");
+                card.labelFmt(35, 12, "{d:_>16}", .{branch_4_count}) catch @panic("Error printing card!");
+                card.labelFmt(35, 13, "{d:_>16}", .{branch_8_count}) catch @panic("Error printing card!");
+                card.labelFmt(35, 14, "{d:_>16}", .{branch_16_count}) catch @panic("Error printing card!");
+                card.labelFmt(35, 15, "{d:_>16}", .{branch_32_count}) catch @panic("Error printing card!");
+                card.labelFmt(35, 16, "{d:_>16}", .{branch_64_count}) catch @panic("Error printing card!");
+
+                card.labelFmt(61,  9, "{d:_>16}", .{infix_8_count}) catch @panic("Error printing card!");
+                card.labelFmt(61, 10, "{d:_>16}", .{infix_16_count}) catch @panic("Error printing card!");
+                card.labelFmt(61, 11, "{d:_>16}", .{infix_24_count}) catch @panic("Error printing card!");
+                card.labelFmt(61, 12, "{d:_>16}", .{infix_32_count}) catch @panic("Error printing card!");
+                card.labelFmt(61, 13, "{d:_>16}", .{infix_40_count}) catch @panic("Error printing card!");
+                card.labelFmt(61, 14, "{d:_>16}", .{infix_48_count}) catch @panic("Error printing card!");
+                card.labelFmt(61, 15, "{d:_>16}", .{infix_56_count}) catch @panic("Error printing card!");
+                card.labelFmt(61, 16, "{d:_>16}", .{infix_64_count}) catch @panic("Error printing card!");
+
+                const chart_start_x = 8;
+                const chart_start_y = 21;
+                const chart_width = 64;
+                const chart_height = 8;
+
+                var x: usize = 0;
+                while(x < chart_width):(x += 1) {
+                    var y: usize = 0;
+                    while(y < chart_height):(y += 1) {
+                        const density = @intToFloat(f64, density_at_depth[x]);
+                        const norm_density = density / @intToFloat(f64, max_density);
+                        const is_marked = norm_density > (@intToFloat(f64, (7 - y)) * (1.0 / 8.0));
+
+                        card.at(chart_start_x + x, chart_start_y + y).* = if (is_marked) '█' else ' ';
+                    }
+                }
+
+                try writer.print("{s}\n", .{card});
             }
 
             pub fn count(self: *const Tree) u64 {
@@ -2140,7 +2380,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             pub fn mem_info(self: *const Tree) MemInfo {
                 var total = MemInfo{ .active_memory = @sizeOf(Tree), .wasted_memory = 0, .passive_memory = 0, .allocation_count = 0 };
 
-                var node_iter = self._nodes();
+                var node_iter = self.nodes();
                 while (node_iter.next()) |res| {
                     total = total.combine(res.node.mem_info());
                 }
@@ -2232,9 +2472,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                        recursiveIsIntersecting(self.child, other.child, 0, undefined);
             }
 
-            fn recursiveUnion(comptime initial_node_count: usize, nodes: []Node, initial_depth: u8, prefix: *[key_length]u8, allocator: std.mem.Allocator) allocError!Node {
-                const first_node = nodes[0];
-                const other_nodes = nodes[1..];
+            fn recursiveUnion(comptime initial_node_count: usize, unioned_nodes: []Node, initial_depth: u8, prefix: *[key_length]u8, allocator: std.mem.Allocator) allocError!Node {
+                const first_node = unioned_nodes[0];
+                const other_nodes = unioned_nodes[1..];
 
                 const first_node_hash = first_node.hash(prefix.*);
                 
@@ -2263,7 +2503,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 var union_childbits = ByteBitset.initEmpty(); // TODO use to allocate a better fitting branch node.
 
-                for (nodes) |node| {
+                for (unioned_nodes) |node| {
                     var node_childbits: ByteBitset = undefined;
                     node.propose(depth, &node_childbits);
                     union_childbits.setUnion(&union_childbits, &node_childbits);
@@ -2277,7 +2517,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     children_len = 0;
                     prefix[depth] = index;
 
-                    for (nodes) |node| {
+                    for (unioned_nodes) |node| {
                         const child = node.get(depth, index);
                         if(!child.isNone()) {
                             children[children_len] = child;
