@@ -17,7 +17,7 @@ const commit = @import("./commit.zig");
 
 const sample_size: usize = 1;
 var data_size: usize = 1000;
-const change_prob = 0.01;
+const change_prob = 0.1;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u32);
 
