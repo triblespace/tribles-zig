@@ -691,8 +691,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             slots: [slot_count]Node = [_]Node{Node{ .none = .{} }} ** slot_count,
 
-            pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
-                _ = depth;
+            pub fn get(self: *const Bucket, byte_key: u8) Node {
                 for (self.slots) |slot| {
                     if (slot.unknown.tag != .none and (slot.unknown.branch == byte_key)) {
                         return slot;
@@ -707,7 +706,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             /// Returns true iff it succeeds.
             pub fn put(
                 self: *Bucket,
-                depth: u8,
                 // / Determines the hash function used for each key and is used to detect outdated (free) slots.
                 rand_hash_used: *ByteBitset,
                 // / The current bucket count. Is used to detect outdated (free) slots.
@@ -717,7 +715,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // / The entry to be stored in the bucket.
                 entry: Node,
             ) bool {
-                return self.putIntoSame(depth, entry) or self.putIntoEmpty(entry) or self.putIntoOutdated(depth, rand_hash_used, current_count, bucket_index, entry);
+                return self.putIntoSame(entry) or self.putIntoEmpty(entry) or self.putIntoOutdated(rand_hash_used, current_count, bucket_index, entry);
             }
 
             /// Updates the pointer for the key stored in this bucket.
@@ -738,11 +736,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             /// Updates the pointer for the key stored in this bucket.
             pub fn putIntoSame(
                 self: *Bucket,
-                depth: u8,
                 // / The new entry value.
                 entry: Node,
             ) bool {
-                _ = depth;
                 for (self.slots) |*slot| {
                     if (slot.unknown.tag != .none and (slot.unknown.branch == entry.unknown.branch)) {
                         slot.* = entry;
@@ -754,7 +750,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub fn putIntoOutdated(
                 self: *Bucket,
-                depth: u8,
                 // / Determines the hash function used for each key and is used to detect outdated (free) slots.
                 rand_hash_used: *ByteBitset,
                 // / The current bucket count. Is used to detect outdated (free) slots.
@@ -764,7 +759,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // / The entry to be stored in the bucket.
                 entry: Node,
             ) bool {
-                _ = depth;
                 for (self.slots) |*slot| {
                     const slot_key = slot.unknown.branch;
                     if (bucket_index != hashByteKey(rand_hash_used.isSet(slot_key), current_count, slot_key)) {
@@ -792,13 +786,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             /// Displaces the first slot that is using the alternate hash function.
             pub fn displaceRandHashOnly(
                 self: *Bucket,
-                depth: u8,
                 // / Determines the hash function used for each key and is used to detect outdated (free) slots.
                 rand_hash_used: *ByteBitset,
                 // / The entry to be stored in the bucket.
                 entry: Node,
             ) Node {
-                _ = depth;
                 for (self.slots) |*slot| {
                     if (rand_hash_used.isSet(slot.unknown.branch)) {
                         const prev = slot.*;
@@ -1003,7 +995,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     // The entire compressed infix above this node matched with the key.
                     const byte_key = key[branch_depth];
 
-                    const old_child = self.body.bucket.get(self.branch_depth, byte_key);
+                    const old_child = self.body.bucket.get(byte_key);
                     if (old_child.unknown.tag != .none) {
                         // The node already has a child branch with the same byte byte_key as the one in the key.
                         const old_child_hash = old_child.hash(key);
@@ -1027,7 +1019,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         self_or_copy.body.leaf_count = new_leaf_count;
                         self_or_copy.body.segment_count = new_segment_count;
 
-                        _ = self_or_copy.body.bucket.putIntoSame(self.branch_depth, new_child);
+                        _ = self_or_copy.body.bucket.putIntoSame(new_child);
                         return @bitCast(Node, self_or_copy);
                     } else {
                         const new_child_node = try WrapInfixNode(branch_depth, key, InitLeafOrTwigNode(branch_depth, key, value), allocator);
@@ -1051,7 +1043,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub fn get(self: Head, at_depth: u8, byte_key: u8) Node {
                 if (at_depth == self.branch_depth) {
-                    return self.body.bucket.get(self.branch_depth, byte_key);
+                    return self.body.bucket.get(byte_key);
                 }
                 if (self.peek(at_depth)) |own_key| {
                     if (own_key == byte_key) return @bitCast(Node, self);
@@ -1537,7 +1529,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         random = rand_lut[random ^ byte_key];
                         const bucket_index = hashByteKey(use_rand_hash, bucket_count, byte_key);
 
-                        if (self.body.buckets[bucket_index].put(self.branch_depth, &self.body.rand_hash_used, bucket_count, bucket_index, entry)) {
+                        if (self.body.buckets[bucket_index].put(&self.body.rand_hash_used, bucket_count, bucket_index, entry)) {
                             self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
                             return null;
                         }
@@ -1553,7 +1545,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                             byte_key = entry.peek(self.branch_depth).?;
                             use_rand_hash = !self.body.rand_hash_used.isSet(byte_key);
                         } else {
-                            entry = self.body.buckets[bucket_index].displaceRandHashOnly(self.branch_depth, &self.body.rand_hash_used, entry);
+                            entry = self.body.buckets[bucket_index].displaceRandHashOnly(&self.body.rand_hash_used, entry);
                             self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
                             byte_key = entry.peek(self.branch_depth).?;
                         }
@@ -1569,13 +1561,13 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 fn getBranch(self: Head, byte_key: u8) Node {
                     assert(self.body.child_set.isSet(byte_key));
                     const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-                    return self.body.buckets[bucket_index].get(self.branch_depth, byte_key);
+                    return self.body.buckets[bucket_index].get(byte_key);
                 }
 
                 fn updateBranch(self: Head, node: Node) void {
                     const byte_key = node.peek(self.branch_depth).?;
                     const bucket_index = hashByteKey(self.body.rand_hash_used.isSet(byte_key), bucket_count, byte_key);
-                    _ = self.body.buckets[bucket_index].putIntoSame(self.branch_depth, node);
+                    _ = self.body.buckets[bucket_index].putIntoSame(node);
                 }
 
                 fn mem_info(self: Head) MemInfo {
