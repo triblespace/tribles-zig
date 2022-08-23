@@ -222,6 +222,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             none: extern struct {
                 tag: NodeTag = .none,
                 padding: [15]u8 = undefined,
+
+                pub fn diagnostics(self: @This()) bool {
+                    _ = self;
+                    return false;
+                }
             },
             branch1: BranchNodeBase,
             branch2: BranchNode(2),
@@ -252,8 +257,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 };
             }
 
-            fn infixNodeTag(comptime suffix_len: u8) NodeTag {
-                return switch (suffix_len) {
+            fn infixNodeTag(comptime infix_len: u8) NodeTag {
+                return switch (infix_len) {
                     12 => NodeTag.infix12,
                     28 => NodeTag.infix28,
                     44 => NodeTag.infix44,
@@ -612,9 +617,28 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 };
             }
 
+            pub fn diagnostics(self: Node) bool {
+                return switch (self.unknown.tag) {
+                    .none => self.none.diagnostics(),
+                    .branch1 => self.branch1.diagnostics(),
+                    .branch2 => self.branch2.diagnostics(),
+                    .branch4 => self.branch4.diagnostics(),
+                    .branch8 => self.branch8.diagnostics(),
+                    .branch16 => self.branch16.diagnostics(),
+                    .branch32 => self.branch32.diagnostics(),
+                    .branch64 => self.branch64.diagnostics(),
+                    .infix12 => self.infix12.diagnostics(),
+                    .infix28 => self.infix28.diagnostics(),
+                    .infix44 => self.infix44.diagnostics(),
+                    .infix60 => self.infix60.diagnostics(),
+                    .leaf => self.leaf.diagnostics(),
+                    .twig => self.twig.diagnostics(),
+                };
+            }
+
             pub fn mem_info(self: Node) MemInfo {
                 return switch (self.unknown.tag) {
-                    .none => self.branch1.mem_info(),
+                    .none => @panic("Called 'mem_info' on none."),
                     .branch1 => self.branch1.mem_info(),
                     .branch2 => self.branch2.mem_info(),
                     .branch4 => self.branch4.mem_info(),
@@ -668,8 +692,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             slots: [slot_count]Node = [_]Node{Node{ .none = .{} }} ** slot_count,
 
             pub fn get(self: *const Bucket, depth: u8, byte_key: u8) Node {
+                _ = depth;
                 for (self.slots) |slot| {
-                    if (slot.unknown.tag != .none and ((slot.peek(depth).?) == byte_key)) {
+                    if (slot.unknown.tag != .none and (slot.unknown.branch == byte_key)) {
                         return slot;
                     }
                 }
@@ -717,8 +742,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // / The new entry value.
                 entry: Node,
             ) bool {
+                _ = depth;
                 for (self.slots) |*slot| {
-                    if (slot.unknown.tag != .none and ((slot.peek(depth).?) == (entry.peek(depth).?))) {
+                    if (slot.unknown.tag != .none and (slot.unknown.branch == entry.unknown.branch)) {
                         slot.* = entry;
                         return true;
                     }
@@ -738,8 +764,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // / The entry to be stored in the bucket.
                 entry: Node,
             ) bool {
+                _ = depth;
                 for (self.slots) |*slot| {
-                    const slot_key = slot.peek(depth).?;
+                    const slot_key = slot.unknown.branch;
                     if (bucket_index != hashByteKey(rand_hash_used.isSet(slot_key), current_count, slot_key)) {
                         slot.* = entry;
                         return true;
@@ -771,8 +798,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // / The entry to be stored in the bucket.
                 entry: Node,
             ) Node {
+                _ = depth;
                 for (self.slots) |*slot| {
-                    if (rand_hash_used.isSet(slot.peek(depth).?)) {
+                    if (rand_hash_used.isSet(slot.unknown.branch)) {
                         const prev = slot.*;
                         slot.* = entry;
                         return prev;
@@ -826,6 +854,31 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 try writer.writeAll("Branch One");
             }
+
+            pub fn diagnostics(self: Head) bool {
+                var has_errors = false;
+                //Infix start consitency.
+                const peek_branch = self.peek(self.start_depth).?;
+                const unknown_branch = @bitCast(Node, self).unknown.branch;
+                if(peek_branch != unknown_branch) {
+                    has_errors = true;
+                    std.debug.print("Diagnostics - Inconsistent infix start; peek():{x} != unknown.branch:{x}\n", .{peek_branch,  unknown_branch});
+                }
+
+                //Child depth consistency.
+                for (self.body.bucket.slots) |slot| {
+                    if (!slot.isNone()) {
+                        const child_start = slot.start();
+                        if(self.branch_depth != child_start) {
+                            has_errors = true;
+                            std.debug.print("Diagnostics - Inconsistent child depth for {s}; branch_depth:{d} != child.start():{d}\n", .{slot.unknown.tag, self.branch_depth,  child_start });
+                        }
+                    }
+                }
+
+                return has_errors;
+            }
+
 
             pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
                 const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
@@ -1235,6 +1288,31 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     try writer.print("{s}\n", .{card});
                 }
 
+                pub fn diagnostics(self: Head) bool {
+                    var has_errors = false;
+
+                    //Infix start consitency.
+                    const peek_branch = self.peek(self.start_depth).?;
+                    const unknown_branch = @bitCast(Node, self).unknown.branch;
+                    if(peek_branch != unknown_branch) {
+                        has_errors = true;
+                        std.debug.print("Diagnostics - Inconsistent infix start; peek():{x} != unknown.branch:{x}\n", .{peek_branch,  unknown_branch});
+                    }
+
+                    //Child depth consistency.
+                    var child_iterator = self.body.child_set;
+                    while (child_iterator.drainNextAscending()) |child_byte_key| {
+                        const child = self.getBranch(@intCast(u8, child_byte_key));
+                        const child_start = child.start();
+                        if(self.branch_depth != child_start) {
+                            has_errors = true;
+                            std.debug.print("Diagnostics - Inconsistent child dept for {s}; branch_depth:{d} != child.start():{d}\n", .{child.unknown.tag, self.branch_depth,  child_start });
+                        }
+                    }
+
+                    return has_errors;
+                }
+
                 pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
                     const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
@@ -1518,36 +1596,37 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         }
 
         fn WrapInfixNode(start_depth: u8, key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Node {
-            var child_depth = child.start();
 
-            if (child_depth <= start_depth) {
+            var branch_depth = child.start();
+            
+            if (branch_depth <= start_depth) {
                 return child;
             }
 
             const child_range = @maximum(start_depth, child.range());
 
-            const child_or_raised = if(child_range < child_depth) child.initAt(child_range, key)
+            const child_or_raised = if(child_range < branch_depth) child.initAt(child_range, key)
                                     else child;
             
-            child_depth = child_range;
+            branch_depth = child_range;
 
-            if (child_depth == start_depth) {
+            if (branch_depth == start_depth) {
                 return child_or_raised;
             }
 
-            const infix_length = child_depth - start_depth;
+            const infix_length = branch_depth - start_depth;
 
             if (infix_length <= 12) {
-                return @bitCast(Node, try InfixNode(12).init(start_depth, child_depth, key, child_or_raised, allocator));
+                return @bitCast(Node, try InfixNode(12).init(start_depth, branch_depth, key, child_or_raised, allocator));
             }
             if (infix_length <= 28) {
-                return @bitCast(Node, try InfixNode(28).init(start_depth, child_depth, key, child_or_raised, allocator));
+                return @bitCast(Node, try InfixNode(28).init(start_depth, branch_depth, key, child_or_raised, allocator));
             }
             if (infix_length <= 44) {
-                return @bitCast(Node, try InfixNode(44).init(start_depth, child_depth, key, child_or_raised, allocator));
+                return @bitCast(Node, try InfixNode(44).init(start_depth, branch_depth, key, child_or_raised, allocator));
             }
             if (infix_length <= 60) {
-                return @bitCast(Node, try InfixNode(60).init(start_depth, child_depth, key, child_or_raised, allocator));
+                return @bitCast(Node, try InfixNode(60).init(start_depth, branch_depth, key, child_or_raised, allocator));
             }
 
             @panic("Infix not long enough.");
@@ -1561,7 +1640,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
 
                 start_depth: u8,
-                child_depth: u8,
+                branch_depth: u8,
 
                 body: *Body,
 
@@ -1572,15 +1651,37 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     infix: [body_infix_len]u8 = undefined,
                 };
 
-                pub fn init(start_depth: u8, child_depth: u8, key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Head {
+                pub fn diagnostics(self: Head) bool {
+                    var has_errors = false;
+
+                    //Infix start consitency.
+                    const peek_branch = self.peek(self.start_depth).?;
+                    const unknown_branch = @bitCast(Node, self).unknown.branch;
+                    if(peek_branch != unknown_branch) {
+                        has_errors = true;
+                        std.debug.print("Diagnostics - Inconsistent infix start; peek():{x} != unknown.branch:{x}\n", .{peek_branch,  unknown_branch});
+                    }
+
+                    //Child depth consistency.
+                    const child = self.body.child;
+                    const child_start = child.start();
+                    if(self.branch_depth != child_start) {
+                        has_errors = true;
+                        std.debug.print("Diagnostics - Inconsistent child dept for {s}; branch_depth:{d} != child.start():{d}\n", .{child.unknown.tag, self.branch_depth,  child_start });
+                    }
+
+                    return has_errors;
+                }
+
+                pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Head {
                     const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                     new_body.* = Body{ .child = child };
-                    var new_head = Head{ .start_depth = start_depth, .child_depth = child_depth, .body = new_body };
+                    var new_head = Head{ .start_depth = start_depth, .branch_depth = branch_depth, .body = new_body };
 
                     copy_start(new_head.infix[0..], key[0..], start_depth);
-                    copy_end(new_body.infix[0..], key[0..], child_depth);
+                    copy_end(new_body.infix[0..], key[0..], branch_depth);
 
                     return new_head;
                 }
@@ -1594,7 +1695,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                             v.* = key[depth];
                             continue;
                         }
-                        if(self.child_depth <= depth) break;
+                        if(self.branch_depth <= depth) break;
                         v.* = self.peek(depth).?;
                     }
                     return @bitCast(Node, new_head);
@@ -1623,7 +1724,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         new_body.child = new_child;
                     }
 
-                    return Head{ .start_depth = self.start_depth, .child_depth = self.child_depth, .infix = self.infix, .body = new_body };
+                    return Head{ .start_depth = self.start_depth, .branch_depth = self.branch_depth, .infix = self.infix, .body = new_body };
                 }
 
                 pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -1649,7 +1750,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn segmentCount(self: Head, depth: u8) u32 {
-                    if (segment_lut[depth] == segment_lut[self.child_depth]) {
+                    if (segment_lut[depth] == segment_lut[self.branch_depth]) {
                         return self.body.child.segmentCount(depth);
                     } else {
                         return 1;
@@ -1660,7 +1761,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     var key = prefix;
 
                     var i = self.start_depth;
-                    while(i < self.child_depth):(i += 1) {
+                    while(i < self.branch_depth):(i += 1) {
                         key[i] = self.peek(i).?;
                     }
 
@@ -1675,18 +1776,18 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn range(self: Head) u8 {
-                    return self.child_depth - @minimum(self.child_depth, infix_len);
+                    return self.branch_depth - @minimum(self.branch_depth, infix_len);
                 }
 
                 pub fn peek(self: Head, at_depth: u8) ?u8 {
-                    if (at_depth < self.start_depth or self.child_depth <= at_depth) return null;
+                    if (at_depth < self.start_depth or self.branch_depth <= at_depth) return null;
                     if (at_depth < self.start_depth + head_infix_len)
                         return self.infix[index_start(self.start_depth, at_depth)];
-                    return self.body.infix[index_end(body_infix_len, self.child_depth, at_depth)];                }
+                    return self.body.infix[index_end(body_infix_len, self.branch_depth, at_depth)];                }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
                     result_set.unsetAll();
-                    if (at_depth == self.child_depth) {
+                    if (at_depth == self.branch_depth) {
                         // We know that the child has its range maxed out otherwise
                         // there wouldn't be a infix node, so this access is easy and
                         // also cheap.
@@ -1701,7 +1802,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn get(self: Head, at_depth: u8, key: u8) Node {
-                    if (at_depth == self.child_depth) {
+                    if (at_depth == self.branch_depth) {
                         if (self.body.child.peek(at_depth).? == key) {
                             return self.body.child;
                         } else {
@@ -1721,10 +1822,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const single_owner = parent_single_owner and self.body.ref_count == 1;
 
                     var branch_depth = start_depth;
-                    while (branch_depth < self.child_depth) : (branch_depth += 1) {
+                    while (branch_depth < self.branch_depth) : (branch_depth += 1) {
                         if (key[branch_depth] != (self.peek(branch_depth).?)) break;
                     } else {
-                        // The entire infix matched with the key, i.e. branch_depth == self.child_depth.
+                        // The entire infix matched with the key, i.e. branch_depth == self.branch_depth.
                         const old_child = self.body.child;
                         const old_child_hash = old_child.hash(key);
                         const new_child = try old_child.put(branch_depth, key, value, single_owner, allocator);
@@ -1734,7 +1835,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         }
 
                         // TODO: this is packed with broken edge cases...
-                        if (new_child.range() != (self.child_depth)) {
+                        if (new_child.range() != (self.branch_depth)) {
                             return try WrapInfixNode(start_depth, key, new_child, allocator);
                         }
 
@@ -1776,25 +1877,54 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         }
 
         const LeafNode = extern struct {
-            pub const suffix_len = 14 - @sizeOf(T); // TODO Check that this doesn't underflow.
-            const max_start_depth = key_length - suffix_len;
+            pub const infix_len = 14 - @sizeOf(T); // TODO Check that this doesn't underflow.
+            const max_start_depth = key_length - infix_len;
 
             tag: NodeTag = .leaf,
             /// The key stored in this entry.
-            suffix: [suffix_len]u8 = [_]u8{0} ** suffix_len,
+            infix: [infix_len]u8 = [_]u8{0} ** infix_len,
             start_depth: u8,
             value: T,
 
             const Head = @This();
+
+            pub fn diagnostics(self: Head) bool {
+                var has_errors = false;
+
+                //Infix start consitency.
+                const peek_branch = self.peek(self.start_depth).?;
+                const unknown_branch = @bitCast(Node, self).unknown.branch;
+                if(peek_branch != unknown_branch) {
+                    has_errors = true;
+                    std.debug.print("Diagnostics - Inconsistent infix start; peek():{x} != unknown.branch:{x}\n", .{peek_branch,  unknown_branch});
+                }
+
+                return has_errors;
+            }
 
             pub fn init(start_depth: u8, key: [key_length]u8, value: T) Head {
                 const actual_start_depth = @maximum(start_depth, max_start_depth);
 
                 var new_head = Head{ .start_depth = actual_start_depth, .value = value };
 
-                copy_start(&new_head.suffix, &key, actual_start_depth);
+                copy_start(&new_head.infix, &key, actual_start_depth);
 
                 return new_head;
+            }
+
+            pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
+                var new_head = self;
+                new_head.start_depth = start_depth;
+                for(new_head.infix) |*v, i| {
+                    const depth = @intCast(u8, start_depth + i);
+                    if(depth < self.start_depth) {
+                        v.* = key[depth];
+                        continue;
+                    }
+                    if(key_length <= depth) break;
+                    v.* = self.peek(depth).?;
+                }
+                return @bitCast(Node, new_head);
             }
 
             pub fn format(
@@ -1806,7 +1936,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 _ = self;
                 _ = fmt;
                 _ = options;
-                try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{ suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix) });
+                try writer.print("Twig infix: {[1]s:_>[0]}\n", .{ infix_len, std.fmt.fmtSliceHexUpper(&self.infix) });
             }
 
             pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -1851,12 +1981,12 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub fn range(self: Head) u8 {
                 _ = self;
-                return key_length - suffix_len;
+                return key_length - infix_len;
             }
 
             pub fn peek(self: Head, at_depth: u8) ?u8 {
                 if (key_length <= at_depth) return null;
-                return self.suffix[index_start(self.start_depth, at_depth)];
+                return self.infix[index_start(self.start_depth, at_depth)];
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -1886,7 +2016,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 const sibling_leaf_node = InitLeafOrTwigNode(branch_depth, key, value);
 
-                return try BranchNodeBase.initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+                return try BranchNodeBase.initBranch(start_depth, branch_depth, key, sibling_leaf_node, self.initAt(branch_depth, key), allocator);
             }
 
             fn mem_info(self: Head) MemInfo {
@@ -1902,24 +2032,53 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         const TwigNode = extern struct {
-            const suffix_len = 14;
-            const max_start_depth = key_length - suffix_len;
+            const infix_len = 14;
+            const max_start_depth = key_length - infix_len;
 
             tag: NodeTag = .twig,
             /// The key stored in this entry.
-            suffix: [suffix_len]u8 = [_]u8{0} ** suffix_len,
+            infix: [infix_len]u8 = [_]u8{0} ** infix_len,
             start_depth: u8,
 
             const Head = @This();
+
+            pub fn diagnostics(self: Head) bool {
+                var has_errors = false;
+
+                //Infix start consitency.
+                const peek_branch = self.peek(self.start_depth).?;
+                const unknown_branch = @bitCast(Node, self).unknown.branch;
+                if(peek_branch != unknown_branch) {
+                    has_errors = true;
+                    std.debug.print("Diagnostics - Inconsistent infix start; peek():{x} != unknown.branch:{x}\n", .{peek_branch,  unknown_branch});
+                }
+
+                return has_errors;
+            }
 
             pub fn init(start_depth: u8, key: [key_length]u8) Head {
                 const actual_start_depth = @maximum(start_depth, max_start_depth);
                 
                 var new_head = Head{.start_depth = actual_start_depth};
 
-                copy_start(&new_head.suffix, &key, actual_start_depth);
+                copy_start(&new_head.infix, &key, actual_start_depth);
 
                 return new_head;
+            }
+
+            pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
+                var new_head = self;
+                new_head.start_depth = start_depth;
+                for(new_head.infix) |*v, i| {
+                    const depth = @intCast(u8, start_depth + i);
+                    if(depth < self.start_depth) {
+                        v.* = key[depth];
+                        continue;
+                    }
+                    if(key_length <= depth) break;
+                    v.* = self.peek(depth).?;
+                }
+                return @bitCast(Node, new_head);
             }
 
             pub fn format(
@@ -1931,7 +2090,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 _ = self;
                 _ = fmt;
                 _ = options;
-                try writer.print("Twig suffix: {[1]s:_>[0]}\n", .{ suffix_len, std.fmt.fmtSliceHexUpper(&self.suffix) });
+                try writer.print("Twig infix: {[1]s:_>[0]}\n", .{ infix_len, std.fmt.fmtSliceHexUpper(&self.infix) });
             }
 
             pub fn ref(self: Head, allocator: std.mem.Allocator) allocError!?Node {
@@ -1976,12 +2135,12 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub fn range(self: Head) u8 {
                 _ = self;
-                return key_length - suffix_len;
+                return key_length - infix_len;
             }
 
             pub fn peek(self: Head, at_depth: u8) ?u8 {
                 if (key_length <= at_depth) return null;
-                return self.suffix[index_start(self.start_depth, at_depth)];
+                return self.infix[index_start(self.start_depth, at_depth)];
             }
 
             pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
@@ -2011,7 +2170,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 const sibling_leaf_node = InitLeafOrTwigNode(branch_depth, key, value);
 
-                return try BranchNodeBase.initBranch(start_depth, branch_depth, key, sibling_leaf_node, @bitCast(Node, self), allocator);
+                return try BranchNodeBase.initBranch(start_depth, branch_depth, key, sibling_leaf_node, self.initAt(branch_depth, key), allocator);
             }
 
             fn mem_info(self: Head) MemInfo {

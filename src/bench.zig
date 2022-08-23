@@ -132,7 +132,9 @@ pub fn benchmark_pact_write() !void {
 
     var node_iter = tree.nodes();
     while(node_iter.next()) |res| {
-         std.debug.print("Depth: {d}\n{s}\n", .{res.start_depth, res.node});
+         if(res.node.diagnostics()) {
+            std.debug.print("{s}\n", .{ res.node });
+         }
     }
 
     std.debug.print("{s}\n", .{tree});
