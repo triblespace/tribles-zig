@@ -12,7 +12,7 @@ const TribleSet = @import("./TribleSet.zig").TribleSet;
 const keyHash = @import("./PACT.zig").keyHash;
 const ByteBitset = @import("./ByteBitset.zig").ByteBitset;
 const commit = @import("./commit.zig");
-//const FUCID = @import("./FUCID.zig");
+const FUCID = @import("./FUCID.zig");
 
 
 const sample_size: usize = 1;
@@ -44,6 +44,10 @@ pub fn main() !void {
         data_size = std.fmt.parseInt(usize, n, 10) catch @panic("Bad args.");
     
     pact.init();
+    
+    var rnd = std.rand.DefaultPrng.init(0).random();
+    FUCID.init(rnd);
+    
     var i: u64 = 0;
     while (i < sample_size) : (i += 1) {
         //try benchmark_pact_small_write();
@@ -410,7 +414,7 @@ pub fn benchmark_commit() !void {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    //FUCID.init(rnd);
+    FUCID.init(rnd);
 
     var set = TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
