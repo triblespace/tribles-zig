@@ -172,7 +172,6 @@ const NodeTag = enum(u8) {
     branch8,
     branch16,
     branch32,
-    branch64,
     infix12,
     infix28,
     infix44,
@@ -234,7 +233,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             branch8: BranchNode(8),
             branch16: BranchNode(16),
             branch32: BranchNode(32),
-            branch64: BranchNode(64),
             infix12: InfixNode(12),
             infix28: InfixNode(28),
             infix44: InfixNode(44),
@@ -252,7 +250,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     8 => NodeTag.branch8,
                     16 => NodeTag.branch16,
                     32 => NodeTag.branch32,
-                    64 => NodeTag.branch64,
                     else => @panic("Bad bucket count for tag."),
                 };
             }
@@ -284,7 +281,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => try writer.print("{s}", .{self.branch8}),
                     .branch16 => try writer.print("{s}", .{self.branch16}),
                     .branch32 => try writer.print("{s}", .{self.branch32}),
-                    .branch64 => try writer.print("{s}", .{self.branch64}),
                     .infix12 => try writer.print("{s}", .{self.infix12}),
                     .infix28 => try writer.print("{s}", .{self.infix28}),
                     .infix44 => try writer.print("{s}", .{self.infix44}),
@@ -308,7 +304,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.ref(allocator),
                     .branch16 => self.branch16.ref(allocator),
                     .branch32 => self.branch32.ref(allocator),
-                    .branch64 => self.branch64.ref(allocator),
                     .infix12 => self.infix12.ref(allocator),
                     .infix28 => self.infix28.ref(allocator),
                     .infix44 => self.infix44.ref(allocator),
@@ -327,7 +322,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.rel(allocator),
                     .branch16 => self.branch16.rel(allocator),
                     .branch32 => self.branch32.rel(allocator),
-                    .branch64 => self.branch64.rel(allocator),
                     .infix12 => self.infix12.rel(allocator),
                     .infix28 => self.infix28.rel(allocator),
                     .infix44 => self.infix44.rel(allocator),
@@ -346,7 +340,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.count(),
                     .branch16 => self.branch16.count(),
                     .branch32 => self.branch32.count(),
-                    .branch64 => self.branch64.count(),
                     .infix12 => self.infix12.count(),
                     .infix28 => self.infix28.count(),
                     .infix44 => self.infix44.count(),
@@ -365,7 +358,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.segmentCount(depth),
                     .branch16 => self.branch16.segmentCount(depth),
                     .branch32 => self.branch32.segmentCount(depth),
-                    .branch64 => self.branch64.segmentCount(depth),
                     .infix12 => self.infix12.segmentCount(depth),
                     .infix28 => self.infix28.segmentCount(depth),
                     .infix44 => self.infix44.segmentCount(depth),
@@ -384,7 +376,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.hash(prefix),
                     .branch16 => self.branch16.hash(prefix),
                     .branch32 => self.branch32.hash(prefix),
-                    .branch64 => self.branch64.hash(prefix),
                     .infix12 => self.infix12.hash(prefix),
                     .infix28 => self.infix28.hash(prefix),
                     .infix44 => self.infix44.hash(prefix),
@@ -403,7 +394,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.minhash(prefix, depth),
                     .branch16 => self.branch16.minhash(prefix, depth),
                     .branch32 => self.branch32.minhash(prefix, depth),
-                    .branch64 => self.branch64.minhash(prefix, depth),
                     .infix12 => self.infix12.minhash(prefix, depth),
                     .infix28 => self.infix28.minhash(prefix, depth),
                     .infix44 => self.infix44.minhash(prefix, depth),
@@ -422,7 +412,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.start_depth,
                     .branch16 => self.branch16.start_depth,
                     .branch32 => self.branch32.start_depth,
-                    .branch64 => self.branch64.start_depth,
                     .infix12 => self.infix12.start_depth,
                     .infix28 => self.infix28.start_depth,
                     .infix44 => self.infix44.start_depth,
@@ -441,7 +430,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.range(),
                     .branch16 => self.branch16.range(),
                     .branch32 => self.branch32.range(),
-                    .branch64 => self.branch64.range(),
                     .infix12 => self.infix12.range(),
                     .infix28 => self.infix28.range(),
                     .infix44 => self.infix44.range(),
@@ -463,7 +451,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.initAt(start_depth, key),
                     .branch16 => self.branch16.initAt(start_depth, key),
                     .branch32 => self.branch32.initAt(start_depth, key),
-                    .branch64 => self.branch64.initAt(start_depth, key),
                     .infix12 => self.infix12.initAt(start_depth, key),
                     .infix28 => self.infix28.initAt(start_depth, key),
                     .infix44 => self.infix44.initAt(start_depth, key),
@@ -480,7 +467,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.peek(at_depth),
                     .branch16 => self.branch16.peek(at_depth),
                     .branch32 => self.branch32.peek(at_depth),
-                    .branch64 => self.branch64.peek(at_depth),
                     .infix12 => self.infix12.peek(at_depth),
                     .infix28 => self.infix28.peek(at_depth),
                     .infix44 => self.infix44.peek(at_depth),
@@ -499,7 +485,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.propose(at_depth, result_set),
                     .branch16 => self.branch16.propose(at_depth, result_set),
                     .branch32 => self.branch32.propose(at_depth, result_set),
-                    .branch64 => self.branch64.propose(at_depth, result_set),
                     .infix12 => self.infix12.propose(at_depth, result_set),
                     .infix28 => self.infix28.propose(at_depth, result_set),
                     .infix44 => self.infix44.propose(at_depth, result_set),
@@ -518,7 +503,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.get(at_depth, byte_key),
                     .branch16 => self.branch16.get(at_depth, byte_key),
                     .branch32 => self.branch32.get(at_depth, byte_key),
-                    .branch64 => self.branch64.get(at_depth, byte_key),
                     .infix12 => self.infix12.get(at_depth, byte_key),
                     .infix28 => self.infix28.get(at_depth, byte_key),
                     .infix44 => self.infix44.get(at_depth, byte_key),
@@ -537,7 +521,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.put(start_depth, key, value, single_owner, allocator),
                     .branch16 => self.branch16.put(start_depth, key, value, single_owner, allocator),
                     .branch32 => self.branch32.put(start_depth, key, value, single_owner, allocator),
-                    .branch64 => self.branch64.put(start_depth, key, value, single_owner, allocator),
                     .infix12 => self.infix12.put(start_depth, key, value, single_owner, allocator),
                     .infix28 => self.infix28.put(start_depth, key, value, single_owner, allocator),
                     .infix44 => self.infix44.put(start_depth, key, value, single_owner, allocator),
@@ -555,7 +538,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.createBranch(child, at_depth, prefix),
                     .branch16 => self.branch16.createBranch(child, at_depth, prefix),
                     .branch32 => self.branch32.createBranch(child, at_depth, prefix),
-                    .branch64 => self.branch64.createBranch(child, at_depth, prefix),
                     .none => @panic("Called `createBranch` on none."),
                     else => @panic("Called `createBranch` on non-branch node."),
                 };
@@ -569,7 +551,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.reinsertBranch(node),
                     .branch16 => self.branch16.reinsertBranch(node),
                     .branch32 => self.branch32.reinsertBranch(node),
-                    .branch64 => self.branch64.reinsertBranch(node),
                     .none => @panic("Called `reinsertBranch` on none."),
                     else => @panic("Called `reinsertBranch` on non-branch node."),
                 };
@@ -583,7 +564,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.grow(allocator),
                     .branch16 => self.branch16.grow(allocator),
                     .branch32 => self.branch32.grow(allocator),
-                    .branch64 => self.branch64.grow(allocator),
                     .none => @panic("Called `grow` on none."),
                     else => @panic("Called `grow` on non-branch node."),
                 };
@@ -607,7 +587,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.branch_depth,
                     .branch16 => self.branch16.branch_depth,
                     .branch32 => self.branch32.branch_depth,
-                    .branch64 => self.branch64.branch_depth,
                     .infix12 => self.infix12.body.child.coveredDepth(),
                     .infix28 => self.infix28.body.child.coveredDepth(),
                     .infix44 => self.infix44.body.child.coveredDepth(),
@@ -626,7 +605,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.diagnostics(),
                     .branch16 => self.branch16.diagnostics(),
                     .branch32 => self.branch32.diagnostics(),
-                    .branch64 => self.branch64.diagnostics(),
                     .infix12 => self.infix12.diagnostics(),
                     .infix28 => self.infix28.diagnostics(),
                     .infix44 => self.infix44.diagnostics(),
@@ -645,7 +623,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch8 => self.branch8.mem_info(),
                     .branch16 => self.branch16.mem_info(),
                     .branch32 => self.branch32.mem_info(),
-                    .branch64 => self.branch64.mem_info(),
                     .infix12 => self.infix12.mem_info(),
                     .infix28 => self.infix28.mem_info(),
                     .infix44 => self.infix44.mem_info(),
@@ -687,7 +664,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         const max_bucket_count = BRANCH_FACTOR / Bucket.slot_count; //64
 
         const Bucket = extern struct {
-            const slot_count = 4;
+            const slot_count = 8;
 
             slots: [slot_count]Node = [_]Node{Node{ .none = .{} }} ** slot_count,
 
@@ -2361,7 +2338,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 var branch_8_count: u64 = 0;
                 var branch_16_count: u64 = 0;
                 var branch_32_count: u64 = 0;
-                var branch_64_count: u64 = 0;
                 var infix_12_count: u64 = 0;
                 var infix_28_count: u64 = 0;
                 var infix_44_count: u64 = 0;
@@ -2383,7 +2359,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         .branch8 => {branch_8_count += 1;},
                         .branch16 => {branch_16_count += 1;},
                         .branch32 => {branch_32_count += 1;},
-                        .branch64 => {branch_64_count += 1;},
                         .infix12 => {infix_12_count += 1;},
                         .infix28 => {infix_28_count += 1;},
                         .infix44 => {infix_44_count += 1;},
@@ -2420,8 +2395,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 card.labelFmt(35, 13, "{d:_>16}", .{branch_8_count}) catch @panic("Error printing card!");
                 card.labelFmt(35, 14, "{d:_>16}", .{branch_16_count}) catch @panic("Error printing card!");
                 card.labelFmt(35, 15, "{d:_>16}", .{branch_32_count}) catch @panic("Error printing card!");
-                card.labelFmt(35, 16, "{d:_>16}", .{branch_64_count}) catch @panic("Error printing card!");
-
+                
                 card.labelFmt(61, 13, "{d:_>16}", .{infix_12_count}) catch @panic("Error printing card!");
                 card.labelFmt(61, 14, "{d:_>16}", .{infix_28_count}) catch @panic("Error printing card!");
                 card.labelFmt(61, 15, "{d:_>16}", .{infix_44_count}) catch @panic("Error printing card!");
@@ -2843,15 +2817,13 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(8).Head, @sizeOf(BranchNode(8).Head), @alignOf(BranchNode(8).Head) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(16).Head, @sizeOf(BranchNode(16).Head), @alignOf(BranchNode(16).Head) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(32).Head, @sizeOf(BranchNode(32).Head), @alignOf(BranchNode(32).Head) });
-            std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(64).Head, @sizeOf(BranchNode(64).Head), @alignOf(BranchNode(64).Head) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNodeBase.Body, @sizeOf(BranchNodeBase.Body), @alignOf(BranchNodeBase.Body) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(2).Body, @sizeOf(BranchNode(2).Body), @alignOf(BranchNode(2).Body) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(4).Body, @sizeOf(BranchNode(4).Body), @alignOf(BranchNode(4).Body) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(8).Body, @sizeOf(BranchNode(8).Body), @alignOf(BranchNode(8).Body) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(16).Body, @sizeOf(BranchNode(16).Body), @alignOf(BranchNode(16).Body) });
             std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(32).Body, @sizeOf(BranchNode(32).Body), @alignOf(BranchNode(32).Body) });
-            std.debug.print("{} Size: {}, Alignment: {}\n", .{ BranchNode(64).Body, @sizeOf(BranchNode(64).Body), @alignOf(BranchNode(64).Body) });
-        }
+            }
     };
 }
 
