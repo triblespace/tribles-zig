@@ -1828,7 +1828,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                         // TODO: this is packed with broken edge cases...
                         if (new_child.range() != (self.branch_depth)) {
-                            return try WrapInfixNode(start_depth, key, new_child, allocator);
+                            const new_node = try WrapInfixNode(start_depth, key, new_child, allocator);
+                            if (single_owner) {
+                                allocator.free(std.mem.asBytes(self.body));
+                            }
+                            return new_node;
                         }
 
                         var self_or_copy = self;
