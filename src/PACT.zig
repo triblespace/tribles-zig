@@ -209,7 +209,7 @@ fn hashByteKey(
 }
 
 const bucket_slot_count = 4;
-const max_bucket_count = BRANCH_FACTOR / bucket_slot_count; //64
+const max_bucket_count = branch_factor / bucket_slot_count; //64
 
 pub fn PACT(comptime segments: []const u8, T: type) type {
     return struct {
