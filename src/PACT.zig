@@ -26,7 +26,7 @@ const HASH_COUNT = 2;
 
 /// The maximum number of cuckoo displacements atempted during
 /// insert before the size of the table is increased.
-const MAX_ATTEMPTS = 4;
+const MAX_RETRIES = 4;
 
 /// A byte -> byte lookup table used in hashes as permutations.
 const Byte_LUT = [256]u8;
@@ -1524,7 +1524,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     const base_size = (bucket_count == 1);
                     var use_rand_hash = false;
                     var entry = node;
-                    var attempts: usize = 0;
+                    var retries: usize = 0;
                     while (true) {
                         random = rand_lut[random ^ byte_key];
                         const bucket_index = hashByteKey(use_rand_hash, bucket_count, byte_key);
@@ -1534,12 +1534,12 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                             return null;
                         }
 
-                        if (base_size or attempts == MAX_ATTEMPTS) {
+                        if (base_size or retries == MAX_RETRIES) {
                             return entry;
                         }
 
                         if (growable) {
-                            attempts += 1;
+                            retries += 1;
                             entry = self.body.buckets[bucket_index].displaceRandomly(random, entry);
                             self.body.rand_hash_used.setValue(byte_key, use_rand_hash);
                             byte_key = entry.peek(self.branch_depth).?;
