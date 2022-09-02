@@ -18,10 +18,10 @@ pub const ByteBitset = extern struct {
     }
 
     pub fn count(self: *const ByteBitset) u16 {
-        return @as(u16, @popCount(u64, self.bits[0]))
-             + @as(u16, @popCount(u64, self.bits[1]))
-             + @as(u16, @popCount(u64, self.bits[2]))
-             + @as(u16, @popCount(u64, self.bits[3]));
+        return @as(u16, @popCount(self.bits[0]))
+             + @as(u16, @popCount(self.bits[1]))
+             + @as(u16, @popCount(self.bits[2]))
+             + @as(u16, @popCount(self.bits[3]));
     }
 
     pub fn set(self: *ByteBitset, index: u8) void {
@@ -61,20 +61,20 @@ pub const ByteBitset = extern struct {
     /// Finds the index of the first set bit.
     /// If no bits are set, returns null.
     pub fn findFirstSet(self: *const ByteBitset) ?u8 {
-        if (self.bits[0] != 0) return @as(u8, @ctz(u64, self.bits[0]));
-        if (self.bits[1] != 0) return (1 << 6) + @as(u8, @ctz(u64, self.bits[1]));
-        if (self.bits[2] != 0) return (2 << 6) + @as(u8, @ctz(u64, self.bits[2]));
-        if (self.bits[3] != 0) return (3 << 6) + @as(u8, @ctz(u64, self.bits[3]));
+        if (self.bits[0] != 0) return @as(u8, @ctz(self.bits[0]));
+        if (self.bits[1] != 0) return (1 << 6) + @as(u8, @ctz(self.bits[1]));
+        if (self.bits[2] != 0) return (2 << 6) + @as(u8, @ctz(self.bits[2]));
+        if (self.bits[3] != 0) return (3 << 6) + @as(u8, @ctz(self.bits[3]));
         return null;
     }
 
     /// Finds the index of the last set bit.
     /// If no bits are set, returns null.
     pub fn findLastSet(self: *const ByteBitset) ?u8 {
-        if (self.bits[3] != 0) return (1 << 6) + (63 - @as(u8, @clz(u64, self.bits[3])));
-        if (self.bits[2] != 0) return (2 << 6) + (63 - @as(u8, @clz(u64, self.bits[2])));
-        if (self.bits[1] != 0) return (3 << 6) + (63 - @as(u8, @clz(u64, self.bits[1])));
-        if (self.bits[0] != 0) return (63 - @as(u8, @clz(u64, self.bits[0])));
+        if (self.bits[3] != 0) return (1 << 6) + (63 - @as(u8, @clz(self.bits[3])));
+        if (self.bits[2] != 0) return (2 << 6) + (63 - @as(u8, @clz(self.bits[2])));
+        if (self.bits[1] != 0) return (3 << 6) + (63 - @as(u8, @clz(self.bits[1])));
+        if (self.bits[0] != 0) return (63 - @as(u8, @clz(self.bits[0])));
         return null;
     }
 

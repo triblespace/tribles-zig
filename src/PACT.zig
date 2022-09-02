@@ -26,6 +26,19 @@ const hash_count = 2;
 /// insert before the size of the table is increased.
 const max_retries = 4;
 
+/// The size of node pointers.
+const node_size = @sizeOf(usize)*2;
+
+/// The cache line size.
+const cache_line = std.atomic.cache_line;
+
+/// The number of slots in a bucket.
+/// Choosen to minimize the number of cache-line loads required.
+const bucket_slot_count = cache_line / node_size;
+
+/// The max number of buckets based on the bucket slot count.
+const max_bucket_count = branch_factor / bucket_slot_count;
+
 /// A byte -> byte lookup table used in hashes as permutations.
 const Byte_LUT = [256]u8;
 
@@ -58,7 +71,7 @@ fn generate_identity_LUT() Byte_LUT {
 fn generate_bitReverse_LUT() Byte_LUT {
     var lut: Byte_LUT = undefined;
     for (lut) |*element, i| {
-        element.* = @bitReverse(u8, @intCast(u8, i));
+        element.* = @bitReverse(@intCast(u8, i));
     }
     assert(is_permutation(&lut));
     return lut;
@@ -195,7 +208,7 @@ fn hashByteKey(
     // / The value to hash.
     v: u8,
 ) u8 {
-    assert(@popCount(u8, c) == 1);
+    assert(@popCount(c) == 1);
     @setEvalBranchQuota(1000000);
     const luts = comptime blk: {
         @setEvalBranchQuota(1000000);
@@ -207,12 +220,8 @@ fn hashByteKey(
     return mask & luts[v][pi];
 }
 
-const bucket_slot_count = 8;
-const max_bucket_count = BRANCH_FACTOR / bucket_slot_count; //64
-
-pub fn PACT(comptime segments: []const u8, T: type) type {
+pub fn PACT(comptime segments: []const u8, comptime T: type) type {
     return struct {
-        pub const segments = segments;
         pub const key_length = blk: {
             var segment_sum = 0;
             for (segments) |segment| {
@@ -246,11 +255,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             unknown: extern struct {
                 tag: NodeTag,
                 branch: u8,
-                padding: [14]u8 = undefined,
+                padding: [node_size - (@sizeOf(NodeTag) + @sizeOf(u8))]u8 = undefined,
             },
             none: extern struct {
                 tag: NodeTag = .none,
-                padding: [15]u8 = undefined,
+                padding: [node_size - @sizeOf(NodeTag)]u8 = undefined,
 
                 pub fn diagnostics(self: @This()) bool {
                     _ = self;
@@ -269,8 +278,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             infix60: InfixNode(60),
             leaf: LeafNode,
             twig: TwigNode,
-
-            const none = Node{ .none = .{ .tag = .none } };
 
             fn branchNodeTag(comptime bucket_count: u8) NodeTag {
                 return switch (bucket_count) {
@@ -672,7 +679,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         return slot;
                     }
                 }
-                return Node.none;
+                return Node{ .none = .{ .tag = .none } };
             }
 
             /// Attempt to store a new node in this bucket,
@@ -778,7 +785,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         const BranchNodeBase = extern struct {
-            const head_infix_len = 5;
+            const head_infix_len = node_size - (@sizeOf(NodeTag)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(*Body));
             const body_infix_len = 32;
             const infix_len = head_infix_len + body_infix_len;
 
@@ -795,8 +805,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             const Head = @This();
 
             const GrownHead = BranchNode(2);
-
-            const BODY_ALIGNMENT = 64;
 
             const Body = extern struct {
                 leaf_count: u64 = 0,
@@ -848,7 +856,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
 
             pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                const allocation = try allocator.allocAdvanced(u8, cache_line, @sizeOf(Body), .exact);
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                 new_body.* = Body{};
 
@@ -1026,11 +1034,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 if (self.peek(at_depth)) |own_key| {
                     if (own_key == byte_key) return @bitCast(Node, self);
                 }
-                return Node.none;
+                return Node{ .none = .{ .tag = .none } };
             }
 
             fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                const allocation = try allocator.allocAdvanced(u8, cache_line, @sizeOf(Body), .exact);
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                 new_body.* = self.body.*;
@@ -1054,7 +1062,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
                 const bucket = self.body.bucket;
 
-                const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
+                const allocation: []align(cache_line) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), cache_line, @sizeOf(GrownHead.Body), .exact);
                 const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
 
                 new_body.buckets[0] = bucket;
@@ -1081,7 +1089,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return self.reinsertBranch(child);
             }
 
-            fn reinsertBranch(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node.none
+            fn reinsertBranch(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node{ .none = .{ .tag = .none } }
                 if (self.body.bucket.putIntoEmpty(node)) {
                     return null; //TODO use none.
                 }
@@ -1122,8 +1130,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 const Head = @This();
 
                 const GrownHead = if (bucket_count == max_bucket_count) Head else BranchNode(bucket_count << 1);
-
-                const BODY_ALIGNMENT = 64;
 
                 const Body = extern struct {
                     leaf_count: u64 = 0,
@@ -1284,7 +1290,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                    const allocation = try allocator.allocAdvanced(u8, cache_line, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = Body{};
 
@@ -1444,17 +1450,17 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         if (self.hasBranch(byte_key)) {
                             return self.getBranch(byte_key);
                         } else {
-                            return Node.none;
+                            return Node{ .none = .{ .tag = .none } };
                         }
                     }
                     if (self.peek(at_depth)) |own_key| {
                         if (own_key == byte_key) return @bitCast(Node, self);
                     }
-                    return Node.none;
+                    return Node{ .none = .{ .tag = .none } };
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                    const allocation = try allocator.allocAdvanced(u8, cache_line, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                     new_body.* = self.body.*;
@@ -1481,7 +1487,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         return @bitCast(Node, self);
                     } else {
                         //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
-                        const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
+                        const allocation: []align(cache_line) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), cache_line, @sizeOf(GrownHead.Body), .exact);
                         const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
                         //std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
@@ -1619,7 +1625,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 const Head = @This();
                 const Body = extern struct {
-                    child: Node = Node.none,
+                    child: Node = Node{ .none = .{ .tag = .none } },
                     ref_count: u8 = 1,
                     infix: [body_infix_len]u8 = undefined,
                 };
@@ -1782,7 +1788,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         if (self.body.child.peek(at_depth).? == key) {
                             return self.body.child;
                         } else {
-                            return Node.none;
+                            return Node{ .none = .{ .tag = .none } };
                         }
                     }
                     if (self.peek(at_depth)) |own_key| {
@@ -1791,7 +1797,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         }
                     }
 
-                    return Node.none;
+                    return Node{ .none = .{ .tag = .none } };
                 }
 
                 pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -1984,7 +1990,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 if (self.peek(at_depth)) |own_key| {
                     if (own_key == key) return @bitCast(Node, self);
                 }
-                return Node.none;
+                return Node{ .none = .{ .tag = .none } };
             }
 
             pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -2141,7 +2147,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 if (self.peek(at_depth)) |own_key| {
                     if (own_key == key) return @bitCast(Node, self);
                 }
-                return Node.none;
+                return Node{ .none = .{ .tag = .none } };
             }
 
             pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -2176,7 +2182,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             const NodeIterator = struct {
                 start_points: ByteBitset = ByteBitset.initEmpty(),
-                path: [key_length]Node = [_]Node{Node.none} ** key_length,
+                path: [key_length]Node = [_]Node{Node{ .none = .{ .tag = .none } }} ** key_length,
                 key: [key_length]u8 = [_]u8{0} ** key_length,
                 branch_state: [key_length]ByteBitset = [_]ByteBitset{ByteBitset.initEmpty()} ** key_length,
 
@@ -2233,7 +2239,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             pub const Cursor = struct {
                 depth: u8 = 0,
-                path: [key_length + 1]Node = [_]Node{Node.none} ** (key_length + 1),
+                path: [key_length + 1]Node = [_]Node{Node{ .none = .{ .tag = .none } }} ** (key_length + 1),
 
                 pub fn init(tree: *const Tree) @This() {
                     var self = @This(){};
@@ -2749,7 +2755,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             //     }
             //     if(intersection_count == 0) {
             //         branch_node.rel(allocator);
-            //         return Node.none;
+            //         return Node{ .none = .{ .tag = .none } };
             //     }
 
             //     if(intersection_count == 1) {

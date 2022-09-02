@@ -1,6 +1,7 @@
 const std = @import("std");
 
 const UFOID = @import("UFOID.zig").UFOID;
+const FUCID = @import("./FUCID.zig").FUCID;
 
 pub const Trible = extern struct {
     pub const e_len = 16;
@@ -13,9 +14,10 @@ pub const Trible = extern struct {
     const Ordering = enum { eav, eva, aev, ave, vea, vae };
 
     pub fn initAribitrary(rnd: std.rand.Random) Trible {
-        const e_value = UFOID.initNow(rnd);
-        const a_value = UFOID.initNow(rnd);
-        const v_value = UFOID.initNow(rnd);
+        _ = rnd;
+        const e_value = FUCID.init();
+        const a_value = FUCID.init();
+        const v_value = FUCID.init();
 
         var t = Trible{ .data = undefined };
         std.mem.copy(u8, t.data[0..16], e_value.encode()[16..32]);
@@ -28,15 +30,15 @@ pub const Trible = extern struct {
     pub fn initAribitraryLike(rnd: std.rand.Random, change_prob: f32, other: Trible) Trible {
         var t = other;
 
-        const v_value = UFOID.initNow(rnd);
+        const v_value = FUCID.init();
         std.mem.copy(u8, t.data[32..64], v_value.encode()[0..32]);
 
         if (rnd.floatNorm(f32) < change_prob) {
-            const a_value = UFOID.initNow(rnd);
+            const a_value = FUCID.init();
             std.mem.copy(u8, t.data[16..32], a_value.encode()[16..32]);
             
             if (rnd.floatNorm(f32) < change_prob) {
-                const e_value = UFOID.initNow(rnd);
+                const e_value = FUCID.init();
                 std.mem.copy(u8, t.data[0..16], e_value.encode()[16..32]);
             }
         }
