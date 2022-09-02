@@ -884,7 +884,12 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn initBranch(start_depth: u8, branch_depth: u8, key: [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
-                const branch_node = try BranchNodeBase.init(start_depth, branch_depth, key, allocator);
+                assert(start_depth <= branch_depth);
+
+                const max_start_depth = branch_depth - @minimum(branch_depth, infix_len);
+                const actual_start_depth = @maximum(start_depth, max_start_depth);
+
+                const branch_node = try BranchNodeBase.init(actual_start_depth, branch_depth, key, allocator);
 
                 // Note that these can't fail.
                 _ = branch_node.createBranch(left, branch_depth, key);
@@ -894,7 +899,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
-                assert(start_depth < self.branch_depth);
+                assert(start_depth <= self.branch_depth);
                 assert(start_depth + infix_len >= self.branch_depth);
                 
                 var new_head = self;
@@ -1320,7 +1325,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
-                    assert(start_depth < self.branch_depth);
+                    assert(start_depth <= self.branch_depth);
                     assert(start_depth + infix_len >= self.branch_depth);
 
                     var new_head = self;
@@ -1683,7 +1688,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
-                    assert(start_depth < self.branch_depth);
+                    assert(start_depth <= self.branch_depth);
                     assert(start_depth + infix_len >= self.branch_depth);
 
                     var new_head = self;
@@ -1916,7 +1921,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
-                assert(start_depth < key_length);
+                assert(start_depth <= key_length);
                 assert(start_depth + infix_len >= key_length);
 
                 var new_head = self;
@@ -2073,7 +2078,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
-                assert(start_depth < key_length);
+                assert(start_depth <= key_length);
                 assert(start_depth + infix_len >= key_length);
 
                 var new_head = self;
