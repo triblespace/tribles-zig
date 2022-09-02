@@ -17,21 +17,21 @@ pub fn init() void {
 
 /// The Tries branching factor, fixed to the number of elements
 /// that can be represented by a byte/8bit.
-const BRANCH_FACTOR = 256;
+const branch_factor = 256;
 
 /// The number of hashes used in the cuckoo table.
-const HASH_COUNT = 2;
+const hash_count = 2;
 
 /// The maximum number of cuckoo displacements atempted during
 /// insert before the size of the table is increased.
-const MAX_RETRIES = 4;
+const max_retries = 4;
 
 /// A byte -> byte lookup table used in hashes as permutations.
 const Byte_LUT = [256]u8;
 
 /// The permutation LUTs of multiple hashes arranged for better
 /// memory locality.
-const Hash_LUT = [256][HASH_COUNT]u8;
+const Hash_LUT = [256][hash_count]u8;
 
 /// Checks if a LUT is a permutation
 fn is_permutation(lut: *const Byte_LUT) bool {
@@ -116,11 +116,11 @@ fn generate_rand_LUT(
 }
 
 fn generate_hash_LUTs(comptime rng: std.rand.Random) Hash_LUT {
-    var luts: [HASH_COUNT]Byte_LUT = undefined;
+    var luts: [hash_count]Byte_LUT = undefined;
 
     luts[0] = generate_bitReverse_LUT();
     for (luts[1..]) |*lut, i| {
-        lut.* = generate_rand_LUT(rng, luts[0..i], HASH_COUNT - 1);
+        lut.* = generate_rand_LUT(rng, luts[0..i], hash_count - 1);
     }
 
     var hash_lut: Hash_LUT = undefined;
@@ -1538,7 +1538,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                             return null;
                         }
 
-                        if (base_size or retries == MAX_RETRIES) {
+                        if (base_size or retries == max_retries) {
                             return entry;
                         }
 
