@@ -8,9 +8,7 @@ const hash = @import("./PACT/Hash.zig");
 const query = @import("./query.zig");
 const Hash = hash.Hash;
 const MinHash = hash.MinHash;
-
 const mem = std.mem;
-
 const CursorIterator = query.CursorIterator;
 
 pub fn init() void {
@@ -179,6 +177,38 @@ const NodeTag = enum(u8) {
     leaf,
     twig,
 };
+
+const rand_lut = blk: {
+    @setEvalBranchQuota(1000000);
+    var rand_state = std.rand.Xoroshiro128.init(0);
+    break :blk generate_pearson_LUT(rand_state.random());
+};
+
+var random: u8 = 4; // Chosen by fair dice roll.
+
+/// Hashes the value provided with the selected permuation and provided compression.
+fn hashByteKey(
+    // / Use alternative permuation.
+    p: bool,
+    // / Bucket count to parameterize the compression used to pigeonhole the items. Must be a power of 2.
+    c: u8,
+    // / The value to hash.
+    v: u8,
+) u8 {
+    assert(@popCount(u8, c) == 1);
+    @setEvalBranchQuota(1000000);
+    const luts = comptime blk: {
+        @setEvalBranchQuota(1000000);
+        var rand_state = std.rand.Xoroshiro128.init(0);
+        break :blk generate_hash_LUTs(rand_state.random());
+    };
+    const mask = c - 1;
+    const pi: u8 = if (p) 1 else 0;
+    return mask & luts[v][pi];
+}
+
+const bucket_slot_count = 8;
+const max_bucket_count = BRANCH_FACTOR / bucket_slot_count; //64
 
 pub fn PACT(comptime segments: []const u8, T: type) type {
     return struct {
@@ -443,8 +473,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             pub fn initAt(self: Node, start_depth: u8, key: [key_length]u8) Node {
                 return switch (self.unknown.tag) {
                     .none => @panic("Called `initAt` on none."),
-                    .leaf => @panic("Called `initAt` on leaf."),
-                    .twig => @panic("Called `initAt` on twig."),
+                    .leaf => self.leaf.initAt(start_depth, key),
+                    .twig => self.twig.initAt(start_depth, key),
                     .branch1 => self.branch1.initAt(start_depth, key),
                     .branch2 => self.branch2.initAt(start_depth, key),
                     .branch4 => self.branch4.initAt(start_depth, key),
@@ -633,40 +663,8 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
         };
 
-        const rand_lut = blk: {
-            @setEvalBranchQuota(1000000);
-            var rand_state = std.rand.Xoroshiro128.init(0);
-            break :blk generate_pearson_LUT(rand_state.random());
-        };
-        var random: u8 = 4; // Chosen by fair dice roll.
-
-        /// Hashes the value provided with the selected permuation and provided compression.
-        fn hashByteKey(
-            // / Use alternative permuation.
-            p: bool,
-            // / Bucket count to parameterize the compression used to pigeonhole the items. Must be a power of 2.
-            c: u8,
-            // / The value to hash.
-            v: u8,
-        ) u8 {
-            assert(@popCount(u8, c) == 1);
-            @setEvalBranchQuota(1000000);
-            const luts = comptime blk: {
-                @setEvalBranchQuota(1000000);
-                var rand_state = std.rand.Xoroshiro128.init(0);
-                break :blk generate_hash_LUTs(rand_state.random());
-            };
-            const mask = c - 1;
-            const pi: u8 = if (p) 1 else 0;
-            return mask & luts[v][pi];
-        }
-
-        const max_bucket_count = BRANCH_FACTOR / Bucket.slot_count; //64
-
         const Bucket = extern struct {
-            const slot_count = 8;
-
-            slots: [slot_count]Node = [_]Node{Node{ .none = .{} }} ** slot_count,
+            slots: [bucket_slot_count]Node = [_]Node{Node{ .none = .{} }} ** bucket_slot_count,
 
             pub fn get(self: *const Bucket, byte_key: u8) Node {
                 for (self.slots) |slot| {
@@ -754,7 +752,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 // / The entry that displaces an existing entry.
                 entry: Node,
             ) Node {
-                const index = random_value & (slot_count - 1);
+                const index = random_value & (bucket_slot_count - 1);
                 const prev = self.slots[index];
                 self.slots[index] = entry;
                 return prev;
@@ -873,6 +871,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
+                assert(start_depth < self.branch_depth);
+                assert(start_depth + infix_len >= self.branch_depth);
+                
                 var new_head = self;
                 new_head.start_depth = start_depth;
                 for(new_head.infix) |*v, i| {
@@ -1296,6 +1297,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
+                    assert(start_depth < self.branch_depth);
+                    assert(start_depth + infix_len >= self.branch_depth);
+
                     var new_head = self;
                     new_head.start_depth = start_depth;
                     for(new_head.infix) |*v, i| {
@@ -1549,7 +1553,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                 fn mem_info(self: Head) MemInfo {
                     const child_count = self.body.child_set.count();
-                    const total_slot_count = @as(usize, bucket_count) * @as(usize, Bucket.slot_count);
+                    const total_slot_count = @as(usize, bucket_count) * @as(usize, bucket_slot_count);
                     const unused_slots = total_slot_count - child_count;
 
                     var wasted_infix_bytes: usize = 0;
@@ -1656,6 +1660,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
+                    assert(start_depth < self.branch_depth);
+                    assert(start_depth + infix_len >= self.branch_depth);
+
                     var new_head = self;
                     new_head.start_depth = start_depth;
                     for(new_head.infix) |*v, i| {
@@ -1805,7 +1812,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
                         // TODO: this is packed with broken edge cases...
                         if (new_child.range() != (self.branch_depth)) {
-                            return try WrapInfixNode(start_depth, key, new_child, allocator);
+                            const new_node = try WrapInfixNode(start_depth, key, new_child, allocator);
+                            if (single_owner) {
+                                allocator.free(std.mem.asBytes(self.body));
+                            }
+                            return new_node;
                         }
 
                         var self_or_copy = self;
@@ -1882,6 +1893,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
+                assert(start_depth < key_length);
+                assert(start_depth + infix_len >= key_length);
+
                 var new_head = self;
                 new_head.start_depth = start_depth;
                 for(new_head.infix) |*v, i| {
@@ -2036,6 +2050,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             pub fn initAt(self: Head, start_depth: u8, key: [key_length]u8) Node {
+                assert(start_depth < key_length);
+                assert(start_depth + infix_len >= key_length);
+
                 var new_head = self;
                 new_head.start_depth = start_depth;
                 for(new_head.infix) |*v, i| {
