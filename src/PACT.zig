@@ -7,7 +7,6 @@ const MemInfo = @import("./MemInfo.zig").MemInfo;
 const hash = @import("./PACT/Hash.zig");
 const query = @import("./query.zig");
 const Hash = hash.Hash;
-const MinHash = hash.MinHash;
 const mem = std.mem;
 const CursorIterator = query.CursorIterator;
 
@@ -21,6 +20,23 @@ const branch_factor = 256;
 
 /// The number of hashes used in the cuckoo table.
 const hash_count = 2;
+
+/// The size of a cache line in bytes.
+const cache_line_size = 64;
+
+/// The size of node heads/fat pointers.
+const node_size = 16;
+
+/// The number of slots per bucket.
+const bucket_slot_count = cache_line_size / node_size;
+
+/// The maximum number of buckets per branch node.
+const max_bucket_count = branch_factor / bucket_slot_count;
+
+/// Infix nodes will be allocated so that their body sizes are multiples
+/// of the chunk size.
+const infix_chunk_size = 16;
+
 
 /// The maximum number of cuckoo displacements atempted during
 /// insert before the size of the table is increased.
@@ -171,10 +187,9 @@ const NodeTag = enum(u8) {
     branch16,
     branch32,
     branch64,
-    infix12,
-    infix28,
-    infix44,
-    infix60,
+    infix2,
+    infix3,
+    infix4,
     leaf,
     twig,
 };
@@ -207,9 +222,6 @@ fn hashByteKey(
     const pi: u8 = if (p) 1 else 0;
     return mask & luts[v][pi];
 }
-
-const bucket_slot_count = 4;
-const max_bucket_count = branch_factor / bucket_slot_count; //64
 
 pub fn PACT(comptime segments: []const u8, T: type) type {
     return struct {
@@ -247,11 +259,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             unknown: extern struct {
                 tag: NodeTag,
                 branch: u8,
-                padding: [14]u8 = undefined,
+                padding: [node_size - (@sizeOf(NodeTag) + @sizeOf(u8))]u8 = undefined,
             },
             none: extern struct {
                 tag: NodeTag = .none,
-                padding: [15]u8 = undefined,
+                padding: [node_size - @sizeOf(NodeTag)]u8 = undefined,
 
                 pub fn diagnostics(self: @This()) bool {
                     _ = self;
@@ -265,10 +277,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             branch16: BranchNode(16),
             branch32: BranchNode(32),
             branch64: BranchNode(64),
-            infix12: InfixNode(12),
-            infix28: InfixNode(28),
-            infix44: InfixNode(44),
-            infix60: InfixNode(60),
+            infix2: InfixNode(2),
+            infix3: InfixNode(3),
+            infix4: InfixNode(4),
             leaf: LeafNode,
             twig: TwigNode,
 
@@ -289,10 +300,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             fn infixNodeTag(comptime infix_len: u8) NodeTag {
                 return switch (infix_len) {
-                    12 => NodeTag.infix12,
-                    28 => NodeTag.infix28,
-                    44 => NodeTag.infix44,
-                    60 => NodeTag.infix60,
+                    2 => NodeTag.infix2,
+                    3 => NodeTag.infix3,
+                    4 => NodeTag.infix4,
                     else => @panic("Bad infix count for infix tag."),
                 };
             }
@@ -315,10 +325,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => try writer.print("{s}", .{self.branch16}),
                     .branch32 => try writer.print("{s}", .{self.branch32}),
                     .branch64 => try writer.print("{s}", .{self.branch64}),
-                    .infix12 => try writer.print("{s}", .{self.infix12}),
-                    .infix28 => try writer.print("{s}", .{self.infix28}),
-                    .infix44 => try writer.print("{s}", .{self.infix44}),
-                    .infix60 => try writer.print("{s}", .{self.infix60}),
+                    .infix2 => try writer.print("{s}", .{self.infix2}),
+                    .infix3 => try writer.print("{s}", .{self.infix3}),
+                    .infix4 => try writer.print("{s}", .{self.infix4}),
                     .leaf => try writer.print("{s}", .{self.leaf}),
                     .twig => try writer.print("{s}", .{self.twig}),
                 }
@@ -339,10 +348,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.ref(allocator),
                     .branch32 => self.branch32.ref(allocator),
                     .branch64 => self.branch64.ref(allocator),
-                    .infix12 => self.infix12.ref(allocator),
-                    .infix28 => self.infix28.ref(allocator),
-                    .infix44 => self.infix44.ref(allocator),
-                    .infix60 => self.infix60.ref(allocator),
+                    .infix2 => self.infix2.ref(allocator),
+                    .infix3 => self.infix3.ref(allocator),
+                    .infix4 => self.infix4.ref(allocator),
                     .leaf => self.leaf.ref(allocator),
                     .twig => self.twig.ref(allocator),
                 };
@@ -358,10 +366,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.rel(allocator),
                     .branch32 => self.branch32.rel(allocator),
                     .branch64 => self.branch64.rel(allocator),
-                    .infix12 => self.infix12.rel(allocator),
-                    .infix28 => self.infix28.rel(allocator),
-                    .infix44 => self.infix44.rel(allocator),
-                    .infix60 => self.infix60.rel(allocator),
+                    .infix2 => self.infix2.rel(allocator),
+                    .infix3 => self.infix3.rel(allocator),
+                    .infix4 => self.infix4.rel(allocator),
                     .leaf => self.leaf.rel(allocator),
                     .twig => self.twig.rel(allocator),
                 }
@@ -377,10 +384,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.count(),
                     .branch32 => self.branch32.count(),
                     .branch64 => self.branch64.count(),
-                    .infix12 => self.infix12.count(),
-                    .infix28 => self.infix28.count(),
-                    .infix44 => self.infix44.count(),
-                    .infix60 => self.infix60.count(),
+                    .infix2 => self.infix2.count(),
+                    .infix3 => self.infix3.count(),
+                    .infix4 => self.infix4.count(),
                     .leaf => self.leaf.count(),
                     .twig => self.twig.count(),
                 };
@@ -396,10 +402,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.segmentCount(depth),
                     .branch32 => self.branch32.segmentCount(depth),
                     .branch64 => self.branch64.segmentCount(depth),
-                    .infix12 => self.infix12.segmentCount(depth),
-                    .infix28 => self.infix28.segmentCount(depth),
-                    .infix44 => self.infix44.segmentCount(depth),
-                    .infix60 => self.infix60.segmentCount(depth),
+                    .infix2 => self.infix2.segmentCount(depth),
+                    .infix3 => self.infix3.segmentCount(depth),
+                    .infix4 => self.infix4.segmentCount(depth),
                     .leaf => self.leaf.segmentCount(depth),
                     .twig => self.twig.segmentCount(depth),
                 };
@@ -415,31 +420,11 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.hash(prefix),
                     .branch32 => self.branch32.hash(prefix),
                     .branch64 => self.branch64.hash(prefix),
-                    .infix12 => self.infix12.hash(prefix),
-                    .infix28 => self.infix28.hash(prefix),
-                    .infix44 => self.infix44.hash(prefix),
-                    .infix60 => self.infix60.hash(prefix),
+                    .infix2 => self.infix2.hash(prefix),
+                    .infix3 => self.infix3.hash(prefix),
+                    .infix4 => self.infix4.hash(prefix),
                     .leaf => self.leaf.hash(prefix),
                     .twig => self.twig.hash(prefix),
-                };
-            }
-
-            pub fn minhash(self: Node, prefix: [key_length]u8, depth: u8) Hash {
-                return switch (self.unknown.tag) {
-                    .none => Hash{},
-                    .branch1 => self.branch1.minhash(prefix, depth),
-                    .branch2 => self.branch2.minhash(prefix, depth),
-                    .branch4 => self.branch4.minhash(prefix, depth),
-                    .branch8 => self.branch8.minhash(prefix, depth),
-                    .branch16 => self.branch16.minhash(prefix, depth),
-                    .branch32 => self.branch32.minhash(prefix, depth),
-                    .branch64 => self.branch64.minhash(prefix, depth),
-                    .infix12 => self.infix12.minhash(prefix, depth),
-                    .infix28 => self.infix28.minhash(prefix, depth),
-                    .infix44 => self.infix44.minhash(prefix, depth),
-                    .infix60 => self.infix60.minhash(prefix, depth),
-                    .leaf => self.leaf.minhash(prefix, depth),
-                    .twig => self.twig.minhash(prefix, depth),
                 };
             }
 
@@ -453,10 +438,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.start_depth,
                     .branch32 => self.branch32.start_depth,
                     .branch64 => self.branch64.start_depth,
-                    .infix12 => self.infix12.start_depth,
-                    .infix28 => self.infix28.start_depth,
-                    .infix44 => self.infix44.start_depth,
-                    .infix60 => self.infix60.start_depth,
+                    .infix2 => self.infix2.start_depth,
+                    .infix3 => self.infix3.start_depth,
+                    .infix4 => self.infix4.start_depth,
                     .leaf => self.leaf.start_depth,
                     .twig => self.twig.start_depth,
                 };
@@ -472,10 +456,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.range(),
                     .branch32 => self.branch32.range(),
                     .branch64 => self.branch64.range(),
-                    .infix12 => self.infix12.range(),
-                    .infix28 => self.infix28.range(),
-                    .infix44 => self.infix44.range(),
-                    .infix60 => self.infix60.range(),
+                    .infix2 => self.infix2.range(),
+                    .infix3 => self.infix3.range(),
+                    .infix4 => self.infix4.range(),
                     .leaf => self.leaf.range(),
                     .twig => self.twig.range(),
                 };
@@ -494,10 +477,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.initAt(start_depth, key),
                     .branch32 => self.branch32.initAt(start_depth, key),
                     .branch64 => self.branch64.initAt(start_depth, key),
-                    .infix12 => self.infix12.initAt(start_depth, key),
-                    .infix28 => self.infix28.initAt(start_depth, key),
-                    .infix44 => self.infix44.initAt(start_depth, key),
-                    .infix60 => self.infix60.initAt(start_depth, key),
+                    .infix2 => self.infix2.initAt(start_depth, key),
+                    .infix3 => self.infix3.initAt(start_depth, key),
+                    .infix4 => self.infix4.initAt(start_depth, key),
                 };
             }
 
@@ -511,10 +493,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.peek(at_depth),
                     .branch32 => self.branch32.peek(at_depth),
                     .branch64 => self.branch64.peek(at_depth),
-                    .infix12 => self.infix12.peek(at_depth),
-                    .infix28 => self.infix28.peek(at_depth),
-                    .infix44 => self.infix44.peek(at_depth),
-                    .infix60 => self.infix60.peek(at_depth),
+                    .infix2 => self.infix2.peek(at_depth),
+                    .infix3 => self.infix3.peek(at_depth),
+                    .infix4 => self.infix4.peek(at_depth),
                     .leaf => self.leaf.peek(at_depth),
                     .twig => self.twig.peek(at_depth),
                 };
@@ -530,10 +511,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.propose(at_depth, result_set),
                     .branch32 => self.branch32.propose(at_depth, result_set),
                     .branch64 => self.branch64.propose(at_depth, result_set),
-                    .infix12 => self.infix12.propose(at_depth, result_set),
-                    .infix28 => self.infix28.propose(at_depth, result_set),
-                    .infix44 => self.infix44.propose(at_depth, result_set),
-                    .infix60 => self.infix60.propose(at_depth, result_set),
+                    .infix2 => self.infix2.propose(at_depth, result_set),
+                    .infix3 => self.infix3.propose(at_depth, result_set),
+                    .infix4 => self.infix4.propose(at_depth, result_set),
                     .leaf => self.leaf.propose(at_depth, result_set),
                     .twig => self.twig.propose(at_depth, result_set),
                 };
@@ -549,10 +529,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.get(at_depth, byte_key),
                     .branch32 => self.branch32.get(at_depth, byte_key),
                     .branch64 => self.branch64.get(at_depth, byte_key),
-                    .infix12 => self.infix12.get(at_depth, byte_key),
-                    .infix28 => self.infix28.get(at_depth, byte_key),
-                    .infix44 => self.infix44.get(at_depth, byte_key),
-                    .infix60 => self.infix60.get(at_depth, byte_key),
+                    .infix2 => self.infix2.get(at_depth, byte_key),
+                    .infix3 => self.infix3.get(at_depth, byte_key),
+                    .infix4 => self.infix4.get(at_depth, byte_key),
                     .leaf => self.leaf.get(at_depth, byte_key),
                     .twig => self.twig.get(at_depth, byte_key),
                 };
@@ -568,10 +547,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.put(start_depth, key, value, single_owner, allocator),
                     .branch32 => self.branch32.put(start_depth, key, value, single_owner, allocator),
                     .branch64 => self.branch64.put(start_depth, key, value, single_owner, allocator),
-                    .infix12 => self.infix12.put(start_depth, key, value, single_owner, allocator),
-                    .infix28 => self.infix28.put(start_depth, key, value, single_owner, allocator),
-                    .infix44 => self.infix44.put(start_depth, key, value, single_owner, allocator),
-                    .infix60 => self.infix60.put(start_depth, key, value, single_owner, allocator),
+                    .infix2 => self.infix2.put(start_depth, key, value, single_owner, allocator),
+                    .infix3 => self.infix3.put(start_depth, key, value, single_owner, allocator),
+                    .infix4 => self.infix4.put(start_depth, key, value, single_owner, allocator),
                     .leaf => self.leaf.put(start_depth, key, value, single_owner, allocator),
                     .twig => self.twig.put(start_depth, key, value, single_owner, allocator),
                 };
@@ -638,10 +616,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.branch_depth,
                     .branch32 => self.branch32.branch_depth,
                     .branch64 => self.branch64.branch_depth,
-                    .infix12 => self.infix12.body.child.coveredDepth(),
-                    .infix28 => self.infix28.body.child.coveredDepth(),
-                    .infix44 => self.infix44.body.child.coveredDepth(),
-                    .infix60 => self.infix60.body.child.coveredDepth(),
+                    .infix2 => self.infix2.body.child.coveredDepth(),
+                    .infix3 => self.infix3.body.child.coveredDepth(),
+                    .infix4 => self.infix4.body.child.coveredDepth(),
                     .leaf => key_length,
                     .twig => key_length,
                 };
@@ -657,10 +634,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.diagnostics(),
                     .branch32 => self.branch32.diagnostics(),
                     .branch64 => self.branch64.diagnostics(),
-                    .infix12 => self.infix12.diagnostics(),
-                    .infix28 => self.infix28.diagnostics(),
-                    .infix44 => self.infix44.diagnostics(),
-                    .infix60 => self.infix60.diagnostics(),
+                    .infix2 => self.infix2.diagnostics(),
+                    .infix3 => self.infix3.diagnostics(),
+                    .infix4 => self.infix4.diagnostics(),
                     .leaf => self.leaf.diagnostics(),
                     .twig => self.twig.diagnostics(),
                 };
@@ -676,10 +652,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     .branch16 => self.branch16.mem_info(),
                     .branch32 => self.branch32.mem_info(),
                     .branch64 => self.branch64.mem_info(),
-                    .infix12 => self.infix12.mem_info(),
-                    .infix28 => self.infix28.mem_info(),
-                    .infix44 => self.infix44.mem_info(),
-                    .infix60 => self.infix60.mem_info(),
+                    .infix2 => self.infix2.mem_info(),
+                    .infix3 => self.infix3.mem_info(),
+                    .infix4 => self.infix4.mem_info(),
                     .leaf => self.leaf.mem_info(),
                     .twig => self.twig.mem_info(),
                 };
@@ -801,7 +776,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         const BranchNodeBase = extern struct {
-            const head_infix_len = 5;
+            const head_infix_len = node_size - (@sizeOf(NodeTag)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(usize));
             const body_infix_len = 32;
             const infix_len = head_infix_len + body_infix_len;
 
@@ -953,14 +931,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             pub fn hash(self: Head, prefix: [key_length]u8) Hash {
                 _ = prefix;
                 return self.body.node_hash;
-            }
-
-            pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
-                _ = self;
-                _ = prefix;
-                _ = depth;
-                return MinHash{};
-                //return self.body.segment_minhash;
             }
 
             pub fn range(self: Head) u8 {
@@ -1132,7 +1102,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         fn BranchNode(comptime bucket_count: u8) type {
-            const head_infix_len = 5;
+            const head_infix_len = node_size - (@sizeOf(NodeTag)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(usize));
             const body_infix_len = 32;
             const infix_len = head_infix_len + body_infix_len;
 
@@ -1380,14 +1353,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     return self.body.node_hash;
                 }
 
-                pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
-                    _ = self;
-                    _ = prefix;
-                    _ = depth;
-                    return MinHash{};
-                    //return self.body.segment_minhash;
-                }
-
                 pub fn range(self: Head) u8 {
                     return self.branch_depth - @minimum(self.branch_depth, infix_len);
                 }
@@ -1617,27 +1582,27 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             const infix_length = branch_depth - start_depth;
 
-            if (infix_length <= 12) {
-                return @bitCast(Node, try InfixNode(12).init(start_depth, branch_depth, key, child_or_raised, allocator));
-            }
-            if (infix_length <= 28) {
-                return @bitCast(Node, try InfixNode(28).init(start_depth, branch_depth, key, child_or_raised, allocator));
-            }
-            if (infix_length <= 44) {
-                return @bitCast(Node, try InfixNode(44).init(start_depth, branch_depth, key, child_or_raised, allocator));
-            }
-            if (infix_length <= 60) {
-                return @bitCast(Node, try InfixNode(60).init(start_depth, branch_depth, key, child_or_raised, allocator));
+            comptime var i = 2; // We need to start at two, because nodes are already 16 byte.
+            inline while (i <= 4) : (i += 1) {
+                if (infix_length <= InfixNode(i).infix_len) {
+                    return @bitCast(Node, try InfixNode(i).init(start_depth, branch_depth, key, child_or_raised, allocator));
+                }
             }
 
             @panic("Infix not long enough.");
         }
 
-        fn InfixNode(comptime infix_len: u8) type {
-            const head_infix_len = 5;
-            const body_infix_len = infix_len - head_infix_len;
+        fn InfixNode(comptime chunk_count: u8) type {
             return extern struct {
-                tag: NodeTag = Node.infixNodeTag(infix_len),
+                const head_infix_len = node_size - (@sizeOf(NodeTag)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(u8)
+                                              + @sizeOf(usize));
+                const body_infix_len = (chunk_count * infix_chunk_size)
+                                    - (node_size + @sizeOf(u8));
+                const infix_len = head_infix_len + body_infix_len;
+
+                tag: NodeTag = Node.infixNodeTag(chunk_count),
                 infix: [head_infix_len]u8 = [_]u8{0} ** head_infix_len,
 
                 start_depth: u8,
@@ -1770,13 +1735,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     }
 
                     return self.body.child.hash(key);
-                }
-
-                pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
-                    _ = self;
-                    _ = prefix;
-                    _ = depth;
-                    return MinHash{};
                 }
 
                 pub fn range(self: Head) u8 {
@@ -1983,13 +1941,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return Hash.init(&key);
             }
 
-            pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
-                _ = self;
-                _ = prefix;
-                _ = depth;
-                return MinHash{};
-            }
-
             pub fn range(self: Head) u8 {
                 _ = self;
                 return key_length - infix_len;
@@ -2140,13 +2091,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return Hash.init(&key);
             }
 
-            pub fn minhash(self: Head, prefix: [key_length]u8, depth: u8) MinHash {
-                _ = self;
-                _ = prefix;
-                _ = depth;
-                return MinHash{};
-            }
-
             pub fn range(self: Head) u8 {
                 _ = self;
                 return key_length - infix_len;
@@ -2200,7 +2144,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         };
 
         pub const Tree = struct {
-            child: Node = Node{ .none = .{} },
+            child: Node = Node.none,
 
             const NodeIterator = struct {
                 start_points: ByteBitset = ByteBitset.initEmpty(),
@@ -2347,10 +2291,10 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 \\│                           branch1 ░░░░░░░░░░░░░░░░                             │
 \\│                           branch2 ░░░░░░░░░░░░░░░░                             │
 \\│                           branch4 ░░░░░░░░░░░░░░░░                             │
-\\│                           branch8 ░░░░░░░░░░░░░░░░  infix12 ░░░░░░░░░░░░░░░░   │
-\\│   none ░░░░░░░░░░░░░░░░  branch16 ░░░░░░░░░░░░░░░░  infix28 ░░░░░░░░░░░░░░░░   │
-\\│   leaf ░░░░░░░░░░░░░░░░  branch32 ░░░░░░░░░░░░░░░░  infix44 ░░░░░░░░░░░░░░░░   │
-\\│   twig ░░░░░░░░░░░░░░░░  branch64 ░░░░░░░░░░░░░░░░  infix60 ░░░░░░░░░░░░░░░░   │
+\\│                           branch8 ░░░░░░░░░░░░░░░░                             │
+\\│   none ░░░░░░░░░░░░░░░░  branch16 ░░░░░░░░░░░░░░░░  infix2 ░░░░░░░░░░░░░░░░    │
+\\│   leaf ░░░░░░░░░░░░░░░░  branch32 ░░░░░░░░░░░░░░░░  infix3 ░░░░░░░░░░░░░░░░    │
+\\│   twig ░░░░░░░░░░░░░░░░  branch64 ░░░░░░░░░░░░░░░░  infix4 ░░░░░░░░░░░░░░░░    │
 \\│                                                                                │
 \\│  Density                                                                       │
 \\│ ═════════                                                                      │
@@ -2384,10 +2328,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 var branch_16_count: u64 = 0;
                 var branch_32_count: u64 = 0;
                 var branch_64_count: u64 = 0;
-                var infix_12_count: u64 = 0;
-                var infix_28_count: u64 = 0;
-                var infix_44_count: u64 = 0;
-                var infix_60_count: u64 = 0;
+                var infix_2_count: u64 = 0;
+                var infix_3_count: u64 = 0;
+                var infix_4_count: u64 = 0;
 
                 var density_at_depth: [key_length]u64 = [_]u64{0} ** key_length;
 
@@ -2406,10 +2349,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         .branch16 => {branch_16_count += 1;},
                         .branch32 => {branch_32_count += 1;},
                         .branch64 => {branch_64_count += 1;},
-                        .infix12 => {infix_12_count += 1;},
-                        .infix28 => {infix_28_count += 1;},
-                        .infix44 => {infix_44_count += 1;},
-                        .infix60 => {infix_60_count += 1;},
+                        .infix2 => {infix_2_count += 1;},
+                        .infix3 => {infix_3_count += 1;},
+                        .infix4 => {infix_4_count += 1;},
                     }
                 }
 
@@ -2444,10 +2386,9 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 card.labelFmt(35, 15, "{d:_>16}", .{branch_32_count}) catch @panic("Error printing card!");
                 card.labelFmt(35, 16, "{d:_>16}", .{branch_64_count}) catch @panic("Error printing card!");
 
-                card.labelFmt(61, 13, "{d:_>16}", .{infix_12_count}) catch @panic("Error printing card!");
-                card.labelFmt(61, 14, "{d:_>16}", .{infix_28_count}) catch @panic("Error printing card!");
-                card.labelFmt(61, 15, "{d:_>16}", .{infix_44_count}) catch @panic("Error printing card!");
-                card.labelFmt(61, 16, "{d:_>16}", .{infix_60_count}) catch @panic("Error printing card!");
+                card.labelFmt(60, 13, "{d:_>16}", .{infix_2_count}) catch @panic("Error printing card!");
+                card.labelFmt(60, 14, "{d:_>16}", .{infix_3_count}) catch @panic("Error printing card!");
+                card.labelFmt(60, 15, "{d:_>16}", .{infix_4_count}) catch @panic("Error printing card!");
 
                 const chart_start_x = 8;
                 const chart_start_y = 21;
