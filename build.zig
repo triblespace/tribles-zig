@@ -18,11 +18,14 @@ pub fn build(b: *std.build.Builder) void {
     bench_exe.setBuildMode(mode);
 
     bench_exe.linkLibC();
-    bench_exe.addCSourceFile("coz/ccoz.c", &[_][]const u8 {});
-    bench_exe.addIncludeDir("coz");
-    bench_exe.addIncludeDir("/usr/include");
-    bench_exe.addLibPath("/usr/lib/coz-profiler");
-    bench_exe.linkSystemLibrary("coz");
+
+    if(@import("builtin").os.tag == .linux) {
+        bench_exe.addCSourceFile("coz/ccoz.c", &[_][]const u8 {});
+        bench_exe.addIncludeDir("coz");
+        bench_exe.addIncludeDir("/usr/include");
+        bench_exe.addLibPath("/usr/lib/coz-profiler");
+        bench_exe.linkSystemLibrary("coz");
+    }
 
     bench_exe.install();
 
