@@ -19,7 +19,7 @@ pub fn build(b: *std.build.Builder) void {
 
     bench_exe.linkLibC();
 
-    if(@import("builtin").os.tag == .linux) {
+    if(target.isLinux()) {
         bench_exe.addCSourceFile("coz/ccoz.c", &[_][]const u8 {});
         bench_exe.addIncludeDir("coz");
         bench_exe.addIncludeDir("/usr/include");
