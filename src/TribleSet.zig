@@ -1,19 +1,19 @@
 const std = @import("std");
 const ByteBitset = @import("ByteBitset.zig").ByteBitset;
 const PACT = @import("./PACT.zig").PACT;
+const Entry = @import("./PACT.zig").Entry;
 const MemInfo = @import("./MemInfo.zig").MemInfo;
 const Trible = @import("./Trible.zig").Trible;
 const Constraint = @import("Constraint.zig");
 const mem = std.mem;
 const allocError = std.mem.Allocator.Error;
 
-
-const EAVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree;
-const EVAIndex = PACT(&[_]u8{16, 32, 16}, u8).Tree;
-const AEVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree;
-const AVEIndex = PACT(&[_]u8{16, 32, 16}, u8).Tree;
-const VEAIndex = PACT(&[_]u8{32, 16, 16}, u8).Tree;
-const VAEIndex = PACT(&[_]u8{32, 16, 16}, u8).Tree;
+const EAVIndex = PACT(Trible.size, &[_]u8{16, 16, 32}, Trible.ordering(.eav), u8).Tree;
+const EVAIndex = PACT(Trible.size, &[_]u8{16, 32, 16}, Trible.ordering(.eva), u8).Tree;
+const AEVIndex = PACT(Trible.size, &[_]u8{16, 16, 32}, Trible.ordering(.aev), u8).Tree;
+const AVEIndex = PACT(Trible.size, &[_]u8{16, 32, 16}, Trible.ordering(.ave), u8).Tree;
+const VEAIndex = PACT(Trible.size, &[_]u8{32, 16, 16}, Trible.ordering(.vea), u8).Tree;
+const VAEIndex = PACT(Trible.size, &[_]u8{32, 16, 16}, Trible.ordering(.vae), u8).Tree;
 
 // const EAVCursor = PaddedCursor(EAVIndex.Cursor, 32);
 // const EVACursor = PaddedCursor(EVAIndex.Cursor, 32);
@@ -435,12 +435,14 @@ pub const TribleSet = struct {
     }
 
     pub fn put(self: *TribleSet, trible: *const Trible) allocError!void {
-        try self.eav.put(trible.ordered(.eav), null, self.allocator);
-        try self.eva.put(trible.ordered(.eva), null, self.allocator);
-        try self.aev.put(trible.ordered(.aev), null, self.allocator);
-        try self.ave.put(trible.ordered(.ave), null, self.allocator);
-        try self.vea.put(trible.ordered(.vea), null, self.allocator);
-        try self.vae.put(trible.ordered(.vae), null, self.allocator);
+        const entry = try Entry(Trible.size, u8).init(trible.data, null, self.allocator);
+        
+        try self.eav.put(entry, self.allocator);
+        try self.eva.put(entry, self.allocator);
+        try self.aev.put(entry, self.allocator);
+        try self.ave.put(entry, self.allocator);
+        try self.vea.put(entry, self.allocator);
+        try self.vae.put(entry, self.allocator);
     }
 
     // pub fn patternConstraint(pattern: [][3]u8, allocator: std.mem.Allocator) Constraint {

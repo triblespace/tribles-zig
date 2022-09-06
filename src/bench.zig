@@ -49,8 +49,8 @@ pub fn main() !void {
         //try benchmark_pact_small_write();
         //try benchmark_pact_cursor_iterate();
         //try benchmark_pact_write();
-        //try benchmark_tribleset_write();
-        try benchmark_commit();
+        try benchmark_tribleset_write();
+        //try benchmark_commit();
     }
     //try benchmark_hashing();
     //try benchmark_std();

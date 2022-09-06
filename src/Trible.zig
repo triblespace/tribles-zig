@@ -122,4 +122,52 @@ pub const Trible = extern struct {
 
         return reordered;
     }
+    
+    pub fn ordering(comptime order: Ordering) [size]u8 {
+        var reordered: [size]u8 = undefined;
+
+        var linear: [size]u8 = undefined;
+        for(linear) |*item, i| {
+            item.* = i;
+        }
+
+        const e_data = linear[0..16];
+        const a_data = linear[16..32];
+        const v_data = linear[32..64];
+
+        switch (order) {
+            .eav => {
+                std.mem.copy(u8, reordered[0..16], e_data);
+                std.mem.copy(u8, reordered[16..32], a_data);
+                std.mem.copy(u8, reordered[32..64], v_data);
+            },
+            .eva => {
+                std.mem.copy(u8, reordered[0..16], e_data);
+                std.mem.copy(u8, reordered[16..48], v_data);
+                std.mem.copy(u8, reordered[48..64], a_data);
+            },
+            .aev => {
+                std.mem.copy(u8, reordered[0..16], a_data);
+                std.mem.copy(u8, reordered[16..32], e_data);
+                std.mem.copy(u8, reordered[32..64], v_data);
+            },
+            .ave => {
+                std.mem.copy(u8, reordered[0..16], a_data);
+                std.mem.copy(u8, reordered[16..48], v_data);
+                std.mem.copy(u8, reordered[48..64], e_data);
+            },
+            .vea => {
+                std.mem.copy(u8, reordered[0..32], v_data);
+                std.mem.copy(u8, reordered[32..48], e_data);
+                std.mem.copy(u8, reordered[48..64], a_data);
+            },
+            .vae => {
+                std.mem.copy(u8, reordered[0..32], v_data);
+                std.mem.copy(u8, reordered[32..48], a_data);
+                std.mem.copy(u8, reordered[48..64], e_data);
+            },
+        }
+
+        return reordered;
+    }
 };
