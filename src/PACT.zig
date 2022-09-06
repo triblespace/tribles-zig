@@ -797,8 +797,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
             const GrownHead = BranchNode(2);
 
-            const BODY_ALIGNMENT = 64;
-
             const Body = extern struct {
                 leaf_count: u64 = 0,
                 ref_count: u16 = 1,
@@ -849,7 +847,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
 
 
             pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                 new_body.* = Body{};
 
@@ -1028,7 +1026,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
 
             fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                 new_body.* = self.body.*;
@@ -1052,7 +1050,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
                 const bucket = self.body.bucket;
 
-                const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
+                const allocation: []align(cache_line_size) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), cache_line_size, @sizeOf(GrownHead.Body), .exact);
                 const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
 
                 new_body.buckets[0] = bucket;
@@ -1123,8 +1121,6 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 const Head = @This();
 
                 const GrownHead = if (bucket_count == max_bucket_count) Head else BranchNode(bucket_count << 1);
-
-                const BODY_ALIGNMENT = 64;
 
                 const Body = extern struct {
                     leaf_count: u64 = 0,
@@ -1285,7 +1281,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                    const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = Body{};
 
@@ -1447,7 +1443,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, BODY_ALIGNMENT, @sizeOf(Body), .exact);
+                    const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                     new_body.* = self.body.*;
@@ -1474,7 +1470,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                         return @bitCast(Node, self);
                     } else {
                         //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
-                        const allocation: []align(BODY_ALIGNMENT) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), BODY_ALIGNMENT, @sizeOf(GrownHead.Body), .exact);
+                        const allocation: []align(cache_line_size) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), cache_line_size, @sizeOf(GrownHead.Body), .exact);
                         const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
                         //std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
