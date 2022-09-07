@@ -2234,6 +2234,8 @@ pub fn PACT(comptime key_length: u8,comptime segments: []const u8, comptime orde
             }
 
             pub fn init(start_depth: u8, entry: *Entry(key_length, T)) Head {
+                entry.ref();
+                
                 var new_head = Head{ .start_depth = start_depth, .entry = entry};
 
                 const key = entry.scramble(ordering);

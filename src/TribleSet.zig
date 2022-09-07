@@ -436,6 +436,7 @@ pub const TribleSet = struct {
 
     pub fn put(self: *TribleSet, trible: *const Trible) allocError!void {
         const entry = try Entry(Trible.size, u8).init(trible.data, null, self.allocator);
+        defer entry.rel(self.allocator);
         
         try self.eav.put(entry, self.allocator);
         try self.eva.put(entry, self.allocator);
