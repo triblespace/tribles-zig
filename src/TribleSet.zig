@@ -7,13 +7,14 @@ const Constraint = @import("Constraint.zig");
 const mem = std.mem;
 const allocError = std.mem.Allocator.Error;
 
+const Nothing = extern struct {};
 
-const EAVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree;
-const EVAIndex = PACT(&[_]u8{16, 32, 16}, u8).Tree;
-const AEVIndex = PACT(&[_]u8{16, 16, 32}, u8).Tree;
-const AVEIndex = PACT(&[_]u8{16, 32, 16}, u8).Tree;
-const VEAIndex = PACT(&[_]u8{32, 16, 16}, u8).Tree;
-const VAEIndex = PACT(&[_]u8{32, 16, 16}, u8).Tree;
+const EAVIndex = PACT(&[_]u8{16, 16, 32}, Nothing).Tree;
+const EVAIndex = PACT(&[_]u8{16, 32, 16}, Nothing).Tree;
+const AEVIndex = PACT(&[_]u8{16, 16, 32}, Nothing).Tree;
+const AVEIndex = PACT(&[_]u8{16, 32, 16}, Nothing).Tree;
+const VEAIndex = PACT(&[_]u8{32, 16, 16}, Nothing).Tree;
+const VAEIndex = PACT(&[_]u8{32, 16, 16}, Nothing).Tree;
 
 // const EAVCursor = PaddedCursor(EAVIndex.Cursor, 32);
 // const EVACursor = PaddedCursor(EVAIndex.Cursor, 32);
@@ -435,12 +436,12 @@ pub const TribleSet = struct {
     }
 
     pub fn put(self: *TribleSet, trible: *const Trible) allocError!void {
-        try self.eav.put(trible.ordered(.eav), null, self.allocator);
-        try self.eva.put(trible.ordered(.eva), null, self.allocator);
-        try self.aev.put(trible.ordered(.aev), null, self.allocator);
-        try self.ave.put(trible.ordered(.ave), null, self.allocator);
-        try self.vea.put(trible.ordered(.vea), null, self.allocator);
-        try self.vae.put(trible.ordered(.vae), null, self.allocator);
+        try self.eav.put(trible.ordered(.eav), Nothing{}, self.allocator);
+        try self.eva.put(trible.ordered(.eva), Nothing{}, self.allocator);
+        try self.aev.put(trible.ordered(.aev), Nothing{}, self.allocator);
+        try self.ave.put(trible.ordered(.ave), Nothing{}, self.allocator);
+        try self.vea.put(trible.ordered(.vea), Nothing{}, self.allocator);
+        try self.vae.put(trible.ordered(.vae), Nothing{}, self.allocator);
     }
 
     // pub fn patternConstraint(pattern: [][3]u8, allocator: std.mem.Allocator) Constraint {
