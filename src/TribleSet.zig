@@ -8,12 +8,14 @@ const Constraint = @import("Constraint.zig");
 const mem = std.mem;
 const allocError = std.mem.Allocator.Error;
 
-const EAVIndex = PACT(Trible.size, &[_]u8{16, 16, 32}, Trible.ordering(.eav), u8).Tree;
-const EVAIndex = PACT(Trible.size, &[_]u8{16, 32, 16}, Trible.ordering(.eva), u8).Tree;
-const AEVIndex = PACT(Trible.size, &[_]u8{16, 16, 32}, Trible.ordering(.aev), u8).Tree;
-const AVEIndex = PACT(Trible.size, &[_]u8{16, 32, 16}, Trible.ordering(.ave), u8).Tree;
-const VEAIndex = PACT(Trible.size, &[_]u8{32, 16, 16}, Trible.ordering(.vea), u8).Tree;
-const VAEIndex = PACT(Trible.size, &[_]u8{32, 16, 16}, Trible.ordering(.vae), u8).Tree;
+const Nothing = extern struct {}; // Cause void no work.
+
+const EAVIndex = PACT(Trible.size, &[_]u8{16, 16, 32}, Trible.ordering(.eav), Nothing).Tree;
+const EVAIndex = PACT(Trible.size, &[_]u8{16, 32, 16}, Trible.ordering(.eva), Nothing).Tree;
+const AEVIndex = PACT(Trible.size, &[_]u8{16, 16, 32}, Trible.ordering(.aev), Nothing).Tree;
+const AVEIndex = PACT(Trible.size, &[_]u8{16, 32, 16}, Trible.ordering(.ave), Nothing).Tree;
+const VEAIndex = PACT(Trible.size, &[_]u8{32, 16, 16}, Trible.ordering(.vea), Nothing).Tree;
+const VAEIndex = PACT(Trible.size, &[_]u8{32, 16, 16}, Trible.ordering(.vae), Nothing).Tree;
 
 // const EAVCursor = PaddedCursor(EAVIndex.Cursor, 32);
 // const EVACursor = PaddedCursor(EVAIndex.Cursor, 32);
@@ -435,7 +437,7 @@ pub const TribleSet = struct {
     }
 
     pub fn put(self: *TribleSet, trible: *const Trible) allocError!void {
-        const entry = try Entry(Trible.size, u8).init(trible.data, null, self.allocator);
+        const entry = try Entry(Trible.size, Nothing).init(trible.data, .{}, self.allocator);
         defer entry.rel(self.allocator);
         
         try self.eav.put(entry, self.allocator);
