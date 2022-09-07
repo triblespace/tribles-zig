@@ -398,8 +398,9 @@ pub const TribleSet = struct {
     vea: VEAIndex,
     vae: VAEIndex,
 
-    pub fn init(allocator: std.mem.Allocator) TribleSet {
-        return TribleSet{
+    pub fn init(allocator: std.mem.Allocator) allocError!*TribleSet {
+        const new_set = try allocator.create(TribleSet);
+        new_set.* = TribleSet{
             .allocator = allocator,
             .eav = EAVIndex.init(),
             .eva = EVAIndex.init(),
@@ -408,6 +409,8 @@ pub const TribleSet = struct {
             .vea = VEAIndex.init(),
             .vae = VAEIndex.init(),
         };
+
+        return new_set;
     }
 
     pub fn deinit(self: *TribleSet) void {
@@ -417,18 +420,38 @@ pub const TribleSet = struct {
         self.ave.deinit(self.allocator);
         self.vea.deinit(self.allocator);
         self.vae.deinit(self.allocator);
+
+        self.allocator.destroy(self);
     }
 
-    pub fn branch(self: *TribleSet) allocError!TribleSet {
-        return TribleSet{
+    pub fn branch(self: *TribleSet) allocError!*TribleSet {
+        const new_set = try self.allocator.create(TribleSet);
+        errdefer {self.allocator.destroy(new_set);}
+
+        const new_eav = self.eav.branch(self.allocator);
+        errdefer {new_eav.deinit();}
+        const new_eva = self.eva.branch(self.allocator);
+        errdefer {new_eva.deinit();}
+        const new_aev = self.aev.branch(self.allocator);
+        errdefer {new_aev.deinit();}
+        const new_ave = self.ave.branch(self.allocator);
+        errdefer {new_ave.deinit();}
+        const new_vea = self.vea.branch(self.allocator);
+        errdefer {new_vea.deinit();}
+        const new_vae = self.vae.branch(self.allocator);
+        errdefer {new_vae.deinit();}
+
+        new_set.* = TribleSet{
             .allocator = self.allocator,
-            .eav = self.eav.branch(self.allocator),
-            .eva = self.eva.branch(self.allocator),
-            .aev = self.aev.branch(self.allocator),
-            .ave = self.ave.branch(self.allocator),
-            .vea = self.vea.branch(self.allocator),
-            .vae = self.vae.branch(self.allocator),
+            .eav = new_eav,
+            .eva = new_eva,
+            .aev = new_aev,
+            .ave = new_ave,
+            .vea = new_vea,
+            .vae = new_vae,
         };
+
+        return new_set;
     }
 
     pub fn count(self: *const TribleSet) u64 {

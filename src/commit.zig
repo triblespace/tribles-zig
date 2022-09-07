@@ -51,7 +51,7 @@ pub const Commit = struct {
         }
     };
 
-    pub fn initFromTribles(key_pair: blaked25519.KeyPair, commit_id: [16]u8, trible_set: TribleSet, allocator: std.mem.Allocator) !Commit {
+    pub fn initFromTribles(key_pair: blaked25519.KeyPair, commit_id: [16]u8, trible_set: *TribleSet, allocator: std.mem.Allocator) !Commit {
         const trible_count = trible_set.eav.count();
         if(trible_count == 0) return error.EmptyCommit;
         const size = header_size + (trible_count * Trible.size);
@@ -114,9 +114,9 @@ pub const Commit = struct {
         return TribleIterator.init(self);
     }
 
-    pub fn toTriblesetSet(self: Commit, allocator: std.mem.Allocator) !TribleSet {
+    pub fn toTriblesetSet(self: Commit, allocator: std.mem.Allocator) !*TribleSet {
         var iter = self.iterate();
-        var set = TribleSet.init(allocator);
+        var set = try TribleSet.init(allocator);
 
         while(iter.next()) |trible| {
             try set.put(trible);

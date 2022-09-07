@@ -66,7 +66,7 @@ pub fn benchmark_tribleset_write() !void {
 
     var rnd = std.rand.DefaultPrng.init(0).random();
 
-    var set = TribleSet.init(std.heap.c_allocator);
+    var set = try TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
@@ -412,7 +412,7 @@ pub fn benchmark_commit() !void {
 
     //FUCID.init(rnd);
 
-    var set = TribleSet.init(std.heap.c_allocator);
+    var set = try TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
 
     std.debug.print("Inserting {d} tribles into TribleSet.\n", .{data_size});
