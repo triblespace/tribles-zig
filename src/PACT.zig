@@ -45,10 +45,6 @@ const max_retries = 4;
 /// A byte -> byte lookup table used in hashes as permutations.
 const Byte_LUT = [256]u8;
 
-/// The permutation LUTs of multiple hashes arranged for better
-/// memory locality.
-const Hash_LUT = [256][hash_count]u8;
-
 /// Checks if a LUT is a permutation
 fn is_permutation(lut: *const Byte_LUT) bool {
     var seen = ByteBitset.initEmpty();
@@ -57,16 +53,6 @@ fn is_permutation(lut: *const Byte_LUT) bool {
     }
 
     return std.meta.eql(seen, ByteBitset.initFull());
-}
-
-/// Choose a random element from a bitset.
-/// Generate a LUT where each input maps to itself.
-fn generate_identity_LUT() Byte_LUT {
-    var lut: Byte_LUT = undefined;
-    for (lut) |*element, i| {
-        element.* = @intCast(u8, i);
-    }
-    return lut;
 }
 
 /// Generate a LUT where each input maps to the input in reverse
@@ -96,16 +82,14 @@ fn random_choice(rng: std.rand.Random, set: ByteBitset) ?u8 {
     return possible_values[rand_index];
 }
 
-fn generate_rand_LUT_helper(rng: std.rand.Random, dependencies: []const Byte_LUT, i: usize, remaining: ByteBitset, mask: u8, lut: *Byte_LUT) bool {
+fn generate_rand_LUT_helper(rng: std.rand.Random, i: usize, remaining: ByteBitset, mask: u8, lut: *Byte_LUT) bool {
     if (i == 256) return true;
 
     var candidates = remaining;
     var iter = remaining;
     while (iter.drainNextAscending()) |candidate| {
-        for (dependencies) |d| {
-            if ((d[i] & mask) == (candidate & mask)) {
-                candidates.unset(candidate);
-            }
+        if ((@bitReverse(u8, @intCast(u8, i)) & mask) == (candidate & mask)) {
+            candidates.unset(candidate);
         }
     }
     while (random_choice(rng, candidates)) |candidate| {
@@ -113,7 +97,7 @@ fn generate_rand_LUT_helper(rng: std.rand.Random, dependencies: []const Byte_LUT
         new_remaining.unset(candidate);
         candidates.unset(candidate);
         lut[i] = candidate;
-        if (generate_rand_LUT_helper(rng, dependencies, i + 1, new_remaining, mask, lut)) {
+        if (generate_rand_LUT_helper(rng, i + 1, new_remaining, mask, lut)) {
             return true;
         }
     } else {
@@ -123,37 +107,23 @@ fn generate_rand_LUT_helper(rng: std.rand.Random, dependencies: []const Byte_LUT
 
 fn generate_rand_LUT(
     rng: std.rand.Random,
-    dependencies: []const Byte_LUT,
     mask: u8,
 ) Byte_LUT {
     var lut: Byte_LUT = undefined;
-    if (!generate_rand_LUT_helper(rng, dependencies, 0, ByteBitset.initFull(), mask, &lut)) unreachable;
+    if (!generate_rand_LUT_helper(rng, 0, ByteBitset.initFull(), mask, &lut)) unreachable;
     return lut;
-}
-
-fn generate_hash_LUTs(comptime rng: std.rand.Random) Hash_LUT {
-    var luts: [hash_count]Byte_LUT = undefined;
-
-    luts[0] = generate_bitReverse_LUT();
-    for (luts[1..]) |*lut, i| {
-        lut.* = generate_rand_LUT(rng, luts[0..i], hash_count - 1);
-    }
-
-    var hash_lut: Hash_LUT = undefined;
-
-    for (luts) |lut, i| {
-        for (lut) |h, j| {
-            hash_lut[j][i] = h;
-        }
-    }
-
-    return hash_lut;
 }
 
 /// Generates a byte -> byte lookup table for pearson hashing.
 fn generate_pearson_LUT(comptime rng: std.rand.Random) Byte_LUT {
-    const no_deps = [0]Byte_LUT{};
-    const lut = generate_rand_LUT(rng, no_deps[0..], 0b11111111);
+    var lut: Byte_LUT = undefined;
+    var candidates = ByteBitset.initFull();
+
+    for(lut) |*item| {
+        const choice = random_choice(rng, candidates).?;
+        candidates.unset(choice);
+        item.* = choice;
+    }
     assert(is_permutation(&lut));
     return lut;
 }
@@ -212,14 +182,13 @@ fn hashByteKey(
 ) u8 {
     assert(@popCount(u8, c) == 1);
     @setEvalBranchQuota(1000000);
-    const luts = comptime blk: {
+    const random_lut = comptime blk: {
         @setEvalBranchQuota(1000000);
         var rand_state = std.rand.Xoroshiro128.init(0);
-        break :blk generate_hash_LUTs(rand_state.random());
+        break :blk generate_rand_LUT(rand_state.random(), hash_count-1);
     };
     const mask = c - 1;
-    const pi: u8 = if (p) 1 else 0;
-    return mask & luts[v][pi];
+    return mask & if (p) random_lut[v] else @bitReverse(u8, v);
 }
 
 pub fn PACT(comptime segments: []const u8, Value: type) type {
