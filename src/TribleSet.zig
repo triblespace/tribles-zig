@@ -419,15 +419,15 @@ pub const TribleSet = struct {
         self.vae.deinit(self.allocator);
     }
 
-    pub fn fork(self: *TribleSet) allocError!TribleSet {
+    pub fn branch(self: *TribleSet) allocError!TribleSet {
         return TribleSet{
             .allocator = self.allocator,
-            .eav = self.eav.fork(self.allocator),
-            .eva = self.eva.fork(self.allocator),
-            .aev = self.aev.fork(self.allocator),
-            .ave = self.ave.fork(self.allocator),
-            .vea = self.vea.fork(self.allocator),
-            .vae = self.vae.fork(self.allocator),
+            .eav = self.eav.branch(self.allocator),
+            .eva = self.eva.branch(self.allocator),
+            .aev = self.aev.branch(self.allocator),
+            .ave = self.ave.branch(self.allocator),
+            .vea = self.vea.branch(self.allocator),
+            .vae = self.vae.branch(self.allocator),
         };
     }
 

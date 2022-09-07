@@ -2089,7 +2089,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                 self.child.rel(allocator);
             }
 
-            pub fn fork(self: *Tree, allocator: std.mem.Allocator) allocError!Tree {
+            pub fn branch(self: *Tree, allocator: std.mem.Allocator) allocError!Tree {
                 return Tree{ .child = (try self.child.ref(allocator)) orelse self.child };
             }
 
@@ -2683,7 +2683,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
 //     var tree = Tree.init(gpa);
 //     defer tree.deinit();
 
-//     var new_tree = try tree.fork();
+//     var new_tree = try tree.branch();
 //     defer new_tree.deinit();
 
 //     const key: [key_length]u8 = [_]u8{0} ** key_length;
