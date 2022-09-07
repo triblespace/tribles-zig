@@ -223,7 +223,7 @@ fn hashByteKey(
     return mask & luts[v][pi];
 }
 
-pub fn PACT(comptime segments: []const u8, T: type) type {
+pub fn PACT(comptime segments: []const u8, Value: type) type {
     return struct {
         pub const segments = segments;
         pub const key_length = blk: {
@@ -233,7 +233,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             }
             break :blk segment_sum;
         };
-        pub const value_type = T;
+        pub const value_type = Value;
 
         const segment_lut: [key_length + 1]u8 = blk: {
             var lut: [key_length + 1]u8 = undefined;
@@ -537,7 +537,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 };
             }
 
-            pub fn put(self: Node, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            pub fn put(self: Node, start_depth: u8, key: [key_length]u8, value: ?Value, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                 return switch (self.unknown.tag) {
                     .none => @panic("Called `put` on none."),
                     .branch1 => self.branch1.put(start_depth, key, value, single_owner, allocator),
@@ -597,7 +597,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 };
             }
 
-            pub fn getValue(self: Node) ?T {
+            pub fn getValue(self: Node) ?Value {
                 return switch (self.unknown.tag) {
                     .none => null,
                     .twig => null,
@@ -959,7 +959,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
             }
 
-            pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?Value, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                 const single_owner = parent_single_owner and self.body.ref_count == 1;
 
                 var branch_depth = start_depth;
@@ -1373,7 +1373,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     }
                 }
 
-                pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+                pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?Value, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                     const single_owner = parent_single_owner and self.body.ref_count == 1;
 
                     var branch_depth = start_depth;
@@ -1776,7 +1776,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                     return Node.none;
                 }
 
-                pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+                pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?Value, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                     const single_owner = parent_single_owner and self.body.ref_count == 1;
 
                     var branch_depth = start_depth;
@@ -1830,7 +1830,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
             };
         }
 
-        fn InitLeafOrTwigNode(start_depth: u8, key: [key_length]u8, maybe_value: ?T) Node {
+        fn InitLeafOrTwigNode(start_depth: u8, key: [key_length]u8, maybe_value: ?Value) Node {
             if (maybe_value) |value| {
                 return @bitCast(Node, LeafNode.init(start_depth, key, value));
             } else {
@@ -1839,14 +1839,17 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
         }
 
         const LeafNode = extern struct {
-            pub const infix_len = 14 - @sizeOf(T); // TODO Check that this doesn't underflow.
+            pub const infix_len = node_size
+                                    - (@sizeOf(NodeTag)
+                                     + @sizeOf(u8)
+                                     + @sizeOf(Value));
             const max_start_depth = key_length - infix_len;
 
             tag: NodeTag = .leaf,
             /// The key stored in this entry.
             infix: [infix_len]u8 = [_]u8{0} ** infix_len,
             start_depth: u8,
-            value: T,
+            value: Value,
 
             const Head = @This();
 
@@ -1864,7 +1867,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return has_errors;
             }
 
-            pub fn init(start_depth: u8, key: [key_length]u8, value: T) Head {
+            pub fn init(start_depth: u8, key: [key_length]u8, value: Value) Head {
                 const actual_start_depth = @maximum(start_depth, max_start_depth);
 
                 var new_head = Head{ .start_depth = actual_start_depth, .value = value };
@@ -1962,7 +1965,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return Node.none;
             }
 
-            pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?Value, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                 _ = single_owner;
 
                 var branch_depth = start_depth;
@@ -2112,7 +2115,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return Node.none;
             }
 
-            pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?T, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
+            pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: ?Value, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
                 _ = single_owner;
 
                 var branch_depth = start_depth;
@@ -2410,7 +2413,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 return self.child.count();
             }
 
-            pub fn put(self: *Tree, key: [key_length]u8, value: ?T, allocator: std.mem.Allocator) allocError!void {
+            pub fn put(self: *Tree, key: [key_length]u8, value: ?Value, allocator: std.mem.Allocator) allocError!void {
                 if (self.child.isNone()) {
                     self.child = try WrapInfixNode(0, key, InitLeafOrTwigNode(0, key, value), allocator);
                 } else {
@@ -2418,7 +2421,7 @@ pub fn PACT(comptime segments: []const u8, T: type) type {
                 }
             }
             
-            pub fn get(self: *Tree, key: [key_length]u8) ?T {
+            pub fn get(self: *Tree, key: [key_length]u8) ?Value {
               var node = self.child;
               var depth: u8 = 0; 
               while (!node.isNone()) {
