@@ -426,20 +426,20 @@ pub const TribleSet = struct {
 
     pub fn branch(self: *TribleSet) allocError!*TribleSet {
         const allocator = self.allocator;
-        const new_set = try allocator.create(TribleSet);
+        var new_set = try allocator.create(TribleSet);
         errdefer {allocator.destroy(new_set);}
 
-        const new_eav = try self.eav.branch(allocator);
+        var new_eav = try self.eav.branch(allocator);
         errdefer {new_eav.deinit(allocator);}
-        const new_eva = try self.eva.branch(allocator);
+        var new_eva = try self.eva.branch(allocator);
         errdefer {new_eva.deinit(allocator);}
-        const new_aev = try self.aev.branch(allocator);
+        var new_aev = try self.aev.branch(allocator);
         errdefer {new_aev.deinit(allocator);}
-        const new_ave = try self.ave.branch(allocator);
+        var new_ave = try self.ave.branch(allocator);
         errdefer {new_ave.deinit(allocator);}
-        const new_vea = try self.vea.branch(allocator);
+        var new_vea = try self.vea.branch(allocator);
         errdefer {new_vea.deinit(allocator);}
-        const new_vae = try self.vae.branch(allocator);
+        var new_vae = try self.vae.branch(allocator);
         errdefer {new_vae.deinit(allocator);}
 
         new_set.* = TribleSet{
