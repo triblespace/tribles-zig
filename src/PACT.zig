@@ -60,7 +60,7 @@ fn is_permutation(lut: *const Byte_LUT) bool {
 fn generate_bitReverse_LUT() Byte_LUT {
     var lut: Byte_LUT = undefined;
     for (lut) |*element, i| {
-        element.* = @bitReverse(u8, @intCast(u8, i));
+        element.* = @bitReverse(@intCast(u8, i));
     }
     assert(is_permutation(&lut));
     return lut;
@@ -88,7 +88,7 @@ fn generate_rand_LUT_helper(rng: std.rand.Random, i: usize, remaining: ByteBitse
     var candidates = remaining;
     var iter = remaining;
     while (iter.drainNextAscending()) |candidate| {
-        if ((@bitReverse(u8, @intCast(u8, i)) & mask) == (candidate & mask)) {
+        if ((@bitReverse(@intCast(u8, i)) & mask) == (candidate & mask)) {
             candidates.unset(candidate);
         }
     }
@@ -180,7 +180,7 @@ fn hashByteKey(
     // / The value to hash.
     v: u8,
 ) u8 {
-    assert(@popCount(u8, c) == 1);
+    assert(@popCount(c) == 1);
     @setEvalBranchQuota(1000000);
     const random_lut = comptime blk: {
         @setEvalBranchQuota(1000000);
@@ -188,12 +188,12 @@ fn hashByteKey(
         break :blk generate_rand_LUT(rand_state.random(), hash_count-1);
     };
     const mask = c - 1;
-    return mask & if (p) random_lut[v] else @bitReverse(u8, v);
+    return mask & if (p) random_lut[v] else @bitReverse(v);
 }
 
-pub fn PACT(comptime segments: []const u8, Value: type) type {
+pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
     return struct {
-        pub const segments = segments;
+        pub const segments = segs;
         pub const key_length = blk: {
             var segment_sum = 0;
             for (segments) |segment| {
@@ -249,8 +249,6 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
             infix3: InfixNode(3),
             infix4: InfixNode(4),
             leaf: LeafNode,
-
-            const none = Node{ .none = .{ .tag = .none } };
 
             fn branchNodeTag(comptime bucket_count: u8) NodeTag {
                 return switch (bucket_count) {
@@ -620,7 +618,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                         return slot;
                     }
                 }
-                return Node.none;
+                return Node{ .none = .{} };
             }
 
             /// Attempt to store a new node in this bucket,
@@ -972,7 +970,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                 if (self.peek(at_depth)) |own_key| {
                     if (own_key == byte_key) return @bitCast(Node, self);
                 }
-                return Node.none;
+                return Node{ .none = .{} };
             }
 
             fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
@@ -1027,7 +1025,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                 return self.reinsertBranch(child);
             }
 
-            fn reinsertBranch(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node.none
+            fn reinsertBranch(self: Head, node: Node) ?Node { //TODO get rid of this and make the other one return Node{ .none = .{} }
                 if (self.body.bucket.putIntoEmpty(node)) {
                     return null; //TODO use none.
                 }
@@ -1383,13 +1381,13 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                         if (self.hasBranch(byte_key)) {
                             return self.getBranch(byte_key);
                         } else {
-                            return Node.none;
+                            return Node{ .none = .{} };
                         }
                     }
                     if (self.peek(at_depth)) |own_key| {
                         if (own_key == byte_key) return @bitCast(Node, self);
                     }
-                    return Node.none;
+                    return Node{ .none = .{} };
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
@@ -1558,7 +1556,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
 
                 const Head = @This();
                 const Body = extern struct {
-                    child: Node = Node.none,
+                    child: Node = Node{ .none = .{} },
                     ref_count: u8 = 1,
                     infix: [body_infix_len]u8 = undefined,
                 };
@@ -1714,7 +1712,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                         if (self.body.child.peek(at_depth).? == key) {
                             return self.body.child;
                         } else {
-                            return Node.none;
+                            return Node{ .none = .{} };
                         }
                     }
                     if (self.peek(at_depth)) |own_key| {
@@ -1723,7 +1721,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                         }
                     }
 
-                    return Node.none;
+                    return Node{ .none = .{} };
                 }
 
                 pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: Value, parent_single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -1908,7 +1906,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
                 if (self.peek(at_depth)) |own_key| {
                     if (own_key == key) return @bitCast(Node, self);
                 }
-                return Node.none;
+                return Node{ .none = .{} };
             }
 
             pub fn put(self: Head, start_depth: u8, key: [key_length]u8, value: Value, single_owner: bool, allocator: std.mem.Allocator) allocError!Node {
@@ -1939,11 +1937,11 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
         };
 
         pub const Tree = struct {
-            child: Node = Node.none,
+            child: Node = Node{ .none = .{} },
 
             const NodeIterator = struct {
                 start_points: ByteBitset = ByteBitset.initEmpty(),
-                path: [key_length]Node = [_]Node{Node.none} ** key_length,
+                path: [key_length]Node = [_]Node{Node{ .none = .{} }} ** key_length,
                 key: [key_length]u8 = [_]u8{0} ** key_length,
                 branch_state: [key_length]ByteBitset = [_]ByteBitset{ByteBitset.initEmpty()} ** key_length,
 
@@ -2000,7 +1998,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
 
             pub const Cursor = struct {
                 depth: u8 = 0,
-                path: [key_length + 1]Node = [_]Node{Node.none} ** (key_length + 1),
+                path: [key_length + 1]Node = [_]Node{Node{ .none = .{} }} ** (key_length + 1),
 
                 pub fn init(tree: *const Tree) @This() {
                     var self = @This(){};
@@ -2513,7 +2511,7 @@ pub fn PACT(comptime segments: []const u8, Value: type) type {
             //     }
             //     if(intersection_count == 0) {
             //         branch_node.rel(allocator);
-            //         return Node.none;
+            //         return Node{ .none = .{} };
             //     }
 
             //     if(intersection_count == 1) {

@@ -16,47 +16,49 @@ const commit = @import("./commit.zig");
 
 
 const sample_size: usize = 1;
-var data_size: usize = 1000;
 const change_prob = 0.1;
 
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u32);
 
 pub fn main() !void {
-    const params = comptime [_]clap.Param(clap.Help){
-        clap.parseParam("-n, --number <NUM>     An option parameter, which takes a value.") catch unreachable,
-    };
+    const params = comptime clap.parseParamsComptime(
+        \\-h, --help             Display this help and exit.
+        \\-n, --number <usize>   An option parameter, which takes a value.
+        \\
+    );
 
-    var iter = try clap.args.OsIterator.init(std.heap.c_allocator);
-    defer iter.deinit();
-
+    // Initalize our diagnostics, which can be used for reporting useful errors.
+    // This is optional. You can also pass `.{}` to `clap.parse` if you don't
+    // care about the extra information `Diagnostics` provides.
     var diag = clap.Diagnostic{};
-    var args = clap.parseEx(clap.Help, &params, &iter, .{
-        .allocator = std.heap.c_allocator,
+    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
         .diagnostic = &diag,
     }) catch |err| {
         // Report useful error and exit
         diag.report(std.io.getStdErr().writer(), err) catch {};
         return err;
     };
-    defer args.deinit();
+    defer res.deinit();
 
-    if (args.option("--number")) |n|
-        data_size = std.fmt.parseInt(usize, n, 10) catch @panic("Bad args.");
-    
-    pact.init();
-    var i: u64 = 0;
-    while (i < sample_size) : (i += 1) {
+    if (res.args.number) |n| {
+        pact.init();
+        
+        //var prng = std.rand.DefaultPrng.init(0);
+        //var rnd = prng.random();
+
+        //FUCID.init(rnd);
+        
         //try benchmark_pact_small_write();
         //try benchmark_pact_cursor_iterate();
         //try benchmark_pact_write();
         //try benchmark_tribleset_write();
-        try benchmark_commit();
+        try benchmark_commit(n);
+        //try benchmark_hashing();
+        //try benchmark_std();
     }
-    //try benchmark_hashing();
-    //try benchmark_std();
 }
 
-pub fn benchmark_tribleset_write() !void {
+pub fn benchmark_tribleset_write(data_size: usize) !void {
     //var gpa = std.heap.GeneralPurposeAllocator(.{}){};
     //const allocator = gpa.allocator();
     //defer { _ = gpa.deinit();}
@@ -64,7 +66,8 @@ pub fn benchmark_tribleset_write() !void {
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     var set = try TribleSet.init(std.heap.c_allocator);
     defer set.deinit();
@@ -94,12 +97,13 @@ pub fn benchmark_tribleset_write() !void {
     std.debug.print("{s}\n", .{set});
 }
 
-pub fn benchmark_pact_write() !void {
+pub fn benchmark_pact_write(data_size: usize) !void {
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     var tree = PACT.Tree.init();
     defer tree.deinit(std.heap.c_allocator);
@@ -140,12 +144,13 @@ pub fn benchmark_pact_write() !void {
     std.debug.print("{s}\n", .{tree});
 }
 
-pub fn benchmark_pact_small_write() !void {
+pub fn benchmark_pact_small_write(data_size: usize) !void {
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     var tree = pact.PACT(&[_]u8{8}, u32).Tree.init();
     defer tree.deinit(std.heap.c_allocator);
@@ -187,14 +192,14 @@ pub fn benchmark_pact_small_write() !void {
 }
 
 const union_tree_count = 1000;
-const union_data_size = data_size / union_tree_count;
-
-pub fn benchmark_pact_union() !void {
+pub fn benchmark_pact_union(data_size: usize) !void {
+    const union_data_size = data_size / union_tree_count;
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     var trees: [union_tree_count]PACT.Tree = undefined;
     for( trees ) |*tree| {
@@ -229,12 +234,13 @@ pub fn benchmark_pact_union() !void {
 
 const intersection_tree_count = 10;
 
-pub fn benchmark_pact_intersection() !void {
+pub fn benchmark_pact_intersection(data_size: usize) !void {
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     var trees: [union_tree_count]PACT.Tree = undefined;
     for( trees ) |*tree| {
@@ -267,12 +273,13 @@ pub fn benchmark_pact_intersection() !void {
     std.debug.print("Intersection {d} in {d}ns\n", .{ intersection_tree.count(), t_total });
 }
 
-pub fn benchmark_pact_nodes_iterate() !void {
+pub fn benchmark_pact_nodes_iterate(data_size: usize) !void {
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     var tree = PACT.Tree.init();
     defer tree.deinit();
@@ -302,12 +309,13 @@ pub fn benchmark_pact_nodes_iterate() !void {
 
 }
 
-pub fn benchmark_pact_cursor_iterate() !void {
+pub fn benchmark_pact_cursor_iterate(data_size: usize) !void {
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     var tree = PACT.Tree.init();
     defer tree.deinit(std.heap.c_allocator);
@@ -338,11 +346,12 @@ pub fn benchmark_pact_cursor_iterate() !void {
 
 }
 
-pub fn benchmark_hashing() !void {
+pub fn benchmark_hashing(data_size: usize) !void {
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     std.debug.print("Hashing {d} tribles.\n", .{data_size});
 
@@ -361,13 +370,14 @@ pub fn benchmark_hashing() !void {
     std.debug.print("Hashed {d} in {d}ns\n", .{ data_size, t_total });
 }
 
-pub fn benchmark_std() !void {
+pub fn benchmark_std(data_size: usize) !void {
 
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
-
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
+    
     var map = std.hash_map.AutoHashMap(Trible, ?usize).init(std.heap.c_allocator);
     defer map.deinit();
 
@@ -404,11 +414,12 @@ pub fn benchmark_std() !void {
 }
 
 
-pub fn benchmark_commit() !void {
+pub fn benchmark_commit(data_size: usize) !void {
     var timer = try time.Timer.start();
     var t_total: u64 = 0;
 
-    var rnd = std.rand.DefaultPrng.init(0).random();
+    var prng = std.rand.DefaultPrng.init(0);
+    var rnd = prng.random();
 
     //FUCID.init(rnd);
 
