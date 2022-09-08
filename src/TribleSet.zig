@@ -428,17 +428,17 @@ pub const TribleSet = struct {
         const new_set = try self.allocator.create(TribleSet);
         errdefer {self.allocator.destroy(new_set);}
 
-        const new_eav = self.eav.branch(self.allocator);
+        const new_eav = try self.eav.branch(self.allocator);
         errdefer {new_eav.deinit();}
-        const new_eva = self.eva.branch(self.allocator);
+        const new_eva = try self.eva.branch(self.allocator);
         errdefer {new_eva.deinit();}
-        const new_aev = self.aev.branch(self.allocator);
+        const new_aev = try self.aev.branch(self.allocator);
         errdefer {new_aev.deinit();}
-        const new_ave = self.ave.branch(self.allocator);
+        const new_ave = try self.ave.branch(self.allocator);
         errdefer {new_ave.deinit();}
-        const new_vea = self.vea.branch(self.allocator);
+        const new_vea = try self.vea.branch(self.allocator);
         errdefer {new_vea.deinit();}
-        const new_vae = self.vae.branch(self.allocator);
+        const new_vae = try self.vae.branch(self.allocator);
         errdefer {new_vae.deinit();}
 
         new_set.* = TribleSet{
