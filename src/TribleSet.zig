@@ -425,24 +425,25 @@ pub const TribleSet = struct {
     }
 
     pub fn branch(self: *TribleSet) allocError!*TribleSet {
-        const new_set = try self.allocator.create(TribleSet);
-        errdefer {self.allocator.destroy(new_set);}
+        const allocator = self.allocator;
+        const new_set = try allocator.create(TribleSet);
+        errdefer {allocator.destroy(new_set);}
 
-        const new_eav = try self.eav.branch(self.allocator);
-        errdefer {new_eav.deinit();}
-        const new_eva = try self.eva.branch(self.allocator);
-        errdefer {new_eva.deinit();}
-        const new_aev = try self.aev.branch(self.allocator);
-        errdefer {new_aev.deinit();}
-        const new_ave = try self.ave.branch(self.allocator);
-        errdefer {new_ave.deinit();}
-        const new_vea = try self.vea.branch(self.allocator);
-        errdefer {new_vea.deinit();}
-        const new_vae = try self.vae.branch(self.allocator);
-        errdefer {new_vae.deinit();}
+        const new_eav = try self.eav.branch(allocator);
+        errdefer {new_eav.deinit(allocator);}
+        const new_eva = try self.eva.branch(allocator);
+        errdefer {new_eva.deinit(allocator);}
+        const new_aev = try self.aev.branch(allocator);
+        errdefer {new_aev.deinit(allocator);}
+        const new_ave = try self.ave.branch(allocator);
+        errdefer {new_ave.deinit(allocator);}
+        const new_vea = try self.vea.branch(allocator);
+        errdefer {new_vea.deinit(allocator);}
+        const new_vae = try self.vae.branch(allocator);
+        errdefer {new_vae.deinit(allocator);}
 
         new_set.* = TribleSet{
-            .allocator = self.allocator,
+            .allocator = allocator,
             .eav = new_eav,
             .eva = new_eva,
             .aev = new_aev,
