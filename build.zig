@@ -21,9 +21,9 @@ pub fn build(b: *std.build.Builder) void {
 
     if(target.isLinux()) {
         bench_exe.addCSourceFile("coz/ccoz.c", &[_][]const u8 {});
-        bench_exe.addIncludeDir("coz");
-        bench_exe.addIncludeDir("/usr/include");
-        bench_exe.addLibPath("/usr/lib/coz-profiler");
+        bench_exe.addIncludePath("coz");
+        bench_exe.addIncludePath("/usr/include");
+        bench_exe.addLibraryPath("/usr/lib/coz-profiler");
         bench_exe.linkSystemLibrary("coz");
     }
 

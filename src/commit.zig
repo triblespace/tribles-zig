@@ -32,7 +32,11 @@ pub const KeyPair = blaked25519.KeyPair;
 pub const Commit = struct {
     data: []u8,
 
-    const header_size = 128;
+    pub const header_size = 128;
+    /// This limit enforces compatibility with UDP, DDS, WebRTC and friends.
+    /// Since the entire datamodel is build on calm consistency there is no
+    /// real need for large "transactions" except for metadata austerity.
+    pub const max_trible_count = 1020;
 
     pub const TribleIterator = struct {
         commit: Commit,
@@ -51,7 +55,7 @@ pub const Commit = struct {
         }
     };
 
-    pub fn initFromTribles(key_pair: blaked25519.KeyPair, commit_id: [16]u8, trible_set: *TribleSet, allocator: std.mem.Allocator) !Commit {
+    pub fn initFromTribles(key_pair: KeyPair, commit_id: [16]u8, trible_set: *TribleSet, allocator: std.mem.Allocator) !Commit {
         const trible_count = trible_set.eav.count();
         if(trible_count == 0) return error.EmptyCommit;
         const size = header_size + (trible_count * Trible.size);

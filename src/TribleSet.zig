@@ -392,22 +392,22 @@ const VAEIndex = PACT(&[_]u8{32, 16, 16}, Nothing).Tree;
 pub const TribleSet = struct {
     allocator: std.mem.Allocator,
     eav: EAVIndex,
-    eva: EVAIndex,
+    //eva: EVAIndex,
     aev: AEVIndex,
     ave: AVEIndex,
-    vea: VEAIndex,
-    vae: VAEIndex,
+    //vea: VEAIndex,
+    //vae: VAEIndex,
 
     pub fn init(allocator: std.mem.Allocator) allocError!*TribleSet {
         const new_set = try allocator.create(TribleSet);
         new_set.* = TribleSet{
             .allocator = allocator,
             .eav = EAVIndex.init(),
-            .eva = EVAIndex.init(),
+            //.eva = EVAIndex.init(),
             .aev = AEVIndex.init(),
             .ave = AVEIndex.init(),
-            .vea = VEAIndex.init(),
-            .vae = VAEIndex.init(),
+            //.vea = VEAIndex.init(),
+            //.vae = VAEIndex.init(),
         };
 
         return new_set;
@@ -415,11 +415,11 @@ pub const TribleSet = struct {
 
     pub fn deinit(self: *TribleSet) void {
         self.eav.deinit(self.allocator);
-        self.eva.deinit(self.allocator);
+        //self.eva.deinit(self.allocator);
         self.aev.deinit(self.allocator);
         self.ave.deinit(self.allocator);
-        self.vea.deinit(self.allocator);
-        self.vae.deinit(self.allocator);
+        //self.vea.deinit(self.allocator);
+        //self.vae.deinit(self.allocator);
 
         self.allocator.destroy(self);
     }
@@ -431,25 +431,25 @@ pub const TribleSet = struct {
 
         var new_eav = try self.eav.branch(allocator);
         errdefer {new_eav.deinit(allocator);}
-        var new_eva = try self.eva.branch(allocator);
-        errdefer {new_eva.deinit(allocator);}
+        //var new_eva = try self.eva.branch(allocator);
+        //errdefer {new_eva.deinit(allocator);}
         var new_aev = try self.aev.branch(allocator);
         errdefer {new_aev.deinit(allocator);}
         var new_ave = try self.ave.branch(allocator);
         errdefer {new_ave.deinit(allocator);}
-        var new_vea = try self.vea.branch(allocator);
-        errdefer {new_vea.deinit(allocator);}
-        var new_vae = try self.vae.branch(allocator);
-        errdefer {new_vae.deinit(allocator);}
+        //var new_vea = try self.vea.branch(allocator);
+        //errdefer {new_vea.deinit(allocator);}
+        //var new_vae = try self.vae.branch(allocator);
+        //errdefer {new_vae.deinit(allocator);}
 
         new_set.* = TribleSet{
             .allocator = allocator,
             .eav = new_eav,
-            .eva = new_eva,
+            //.eva = new_eva,
             .aev = new_aev,
             .ave = new_ave,
-            .vea = new_vea,
-            .vae = new_vae,
+            //.vea = new_vea,
+            //.vae = new_vae,
         };
 
         return new_set;
@@ -461,11 +461,11 @@ pub const TribleSet = struct {
 
     pub fn put(self: *TribleSet, trible: *const Trible) allocError!void {
         try self.eav.put(trible.ordered(.eav), Nothing{}, self.allocator);
-        try self.eva.put(trible.ordered(.eva), Nothing{}, self.allocator);
+        //try self.eva.put(trible.ordered(.eva), Nothing{}, self.allocator);
         try self.aev.put(trible.ordered(.aev), Nothing{}, self.allocator);
         try self.ave.put(trible.ordered(.ave), Nothing{}, self.allocator);
-        try self.vea.put(trible.ordered(.vea), Nothing{}, self.allocator);
-        try self.vae.put(trible.ordered(.vae), Nothing{}, self.allocator);
+        //try self.vea.put(trible.ordered(.vea), Nothing{}, self.allocator);
+        //try self.vae.put(trible.ordered(.vae), Nothing{}, self.allocator);
     }
 
     // pub fn patternConstraint(pattern: [][3]u8, allocator: std.mem.Allocator) Constraint {
@@ -481,11 +481,11 @@ pub const TribleSet = struct {
         var total = MemInfo{};
 
         total = total.combine(self.eav.mem_info());
-        total = total.combine(self.eva.mem_info());
+        //total = total.combine(self.eva.mem_info());
         total = total.combine(self.aev.mem_info());
         total = total.combine(self.ave.mem_info());
-        total = total.combine(self.vea.mem_info());
-        total = total.combine(self.vae.mem_info());
+        //total = total.combine(self.vea.mem_info());
+        //total = total.combine(self.vae.mem_info());
 
         return total;
     }

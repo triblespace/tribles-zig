@@ -50,7 +50,6 @@ pub const Trible = extern struct {
         options: std.fmt.FormatOptions,
         writer: anytype,
     ) !void {
-        _ = self;
         _ = fmt;
         _ = options;
         try writer.print("{s:_>32}|{s:_>32}|{s:_>64}", .{ std.fmt.fmtSliceHexUpper(self.data[0..16]), std.fmt.fmtSliceHexUpper(self.data[16..32]), std.fmt.fmtSliceHexUpper(self.data[32..64]) });

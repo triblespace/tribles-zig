@@ -1620,7 +1620,6 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                     options: std.fmt.FormatOptions,
                     writer: anytype,
                 ) !void {
-                    _ = self;
                     _ = fmt;
                     _ = options;
                     try writer.print("{*} �{d}:\n", .{ self.body, self.body.ref_count });
@@ -1845,7 +1844,6 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 options: std.fmt.FormatOptions,
                 writer: anytype,
             ) !void {
-                _ = self;
                 _ = fmt;
                 _ = options;
                 try writer.print("Twig infix: {[1]s:_>[0]}\n", .{ infix_len, std.fmt.fmtSliceHexUpper(&self.infix) });
