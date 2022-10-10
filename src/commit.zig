@@ -1,9 +1,10 @@
 const std = @import("std");
-const blaked25519 = @import("./deps/zig-ed25519-blake2b/ed25519-blake2b.zig").Ed25519Blake2b;
+const ed25519 =  std.crypto.sign.Ed25519;
+const Blake2b256 = std.crypto.hash.blake2.Blake2b256;
 const Trible = @import("./Trible.zig").Trible;
 const TribleSet = @import("./TribleSet.zig").TribleSet;
 
-pub const KeyPair = blaked25519.KeyPair;
+pub const KeyPair = ed25519.KeyPair;
 
 //      16 byte                 32 byte
 //         │                       │
@@ -74,8 +75,10 @@ pub const Commit = struct {
             i += 1;
         }
 
-        const msg = self.data[112..];
-        const sig = try blaked25519.sign(msg, key_pair, null);
+        var digest: [Blake2b256.digest_length]u8 = undefined;
+        Blake2b256.hash(self.data[112..], &digest, .{});
+
+        const sig = try ed25519.sign(&digest, key_pair, null);
         std.mem.copy(u8, self.data[48..112], sig[0..]);
 
         return self;
@@ -110,8 +113,10 @@ pub const Commit = struct {
     }
 
     pub fn verify(self: Commit) !void {
-        const msg = self.data[112..];
-        blaked25519.verify(self.signature(), msg, self.pubkey());
+        var digest: [Blake2b256.digest_length]u8 = undefined;
+        Blake2b256.hash(self.data[112..], &digest, .{});
+
+        ed25519.verify(self.signature(), digest, self.pubkey());
     }
 
     pub fn iterate(self: Commit) TribleIterator {
