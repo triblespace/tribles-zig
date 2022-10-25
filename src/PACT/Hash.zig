@@ -62,7 +62,7 @@ pub const MinHash = extern struct {
     }
 
     pub fn combine(left: MinHash, right: MinHash) MinHash {
-        return MinHash{.data = @maximum(left.data, right.data)};
+        return MinHash{.data = @max(left.data, right.data)};
     }
 
     pub fn equal(left: Hash, right: Hash) bool {

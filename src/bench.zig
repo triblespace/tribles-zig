@@ -48,13 +48,13 @@ pub fn main() !void {
 
         //FUCID.init(rnd);
         
-        //try benchmark_pact_small_write();
-        //try benchmark_pact_cursor_iterate();
-        //try benchmark_pact_write();
-        //try benchmark_tribleset_write();
-        try benchmark_commit(n);
-        //try benchmark_hashing();
-        //try benchmark_std();
+        //try benchmark_pact_small_write(n);
+        //try benchmark_pact_cursor_iterate(n);
+        //try benchmark_pact_write(n);
+        try benchmark_tribleset_write(n);
+        //try benchmark_commit(n);
+        //try benchmark_hashing(n);
+        //try benchmark_std(n);
     }
 }
 
@@ -92,9 +92,9 @@ pub fn benchmark_tribleset_write(data_size: usize) !void {
     //coz.end("insert");
 
     std.debug.print("Inserted {d} in {d}ns\n", .{ i, t_total });
-    std.debug.print("{s}\n", .{set.mem_info()});
+    //std.debug.print("{s}\n", .{set.mem_info()});
 
-    std.debug.print("{s}\n", .{set});
+    //std.debug.print("{s}\n", .{set});
 }
 
 pub fn benchmark_pact_write(data_size: usize) !void {

@@ -137,12 +137,12 @@ fn index_end(comptime infix_len: u8, infix_end: u8, index: u8) u8 {
 }
 
 fn copy_start(target: []u8, source: []const u8, start_index: u8) void {
-    const used_len = @minimum(source.len - start_index, target.len);
+    const used_len = @min(source.len - start_index, target.len);
     mem.copy(u8, target[0 .. used_len], source[start_index .. start_index + used_len]);
 }
 
 fn copy_end(target: []u8, source: []const u8, end_index: u8) void {
-    const used_len = @minimum(end_index, target.len);
+    const used_len = @min(end_index, target.len);
     mem.copy(u8, target[target.len - used_len ..], source[end_index - used_len .. end_index]);
 }
 
@@ -810,8 +810,8 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
             pub fn initBranch(start_depth: u8, branch_depth: u8, key: [key_length]u8, left: Node, right: Node, allocator: std.mem.Allocator) allocError!Node {
                 assert(start_depth <= branch_depth);
 
-                const max_start_depth = branch_depth - @minimum(branch_depth, infix_len);
-                const actual_start_depth = @maximum(start_depth, max_start_depth);
+                const max_start_depth = branch_depth - @min(branch_depth, infix_len);
+                const actual_start_depth = @max(start_depth, max_start_depth);
 
                 const branch_node = try BranchNodeBase.init(actual_start_depth, branch_depth, key, allocator);
 
@@ -880,7 +880,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
             }
 
             pub fn range(self: Head) u8 {
-                return self.branch_depth - @minimum(self.branch_depth, infix_len);
+                return self.branch_depth - @min(self.branch_depth, infix_len);
             }
 
             pub fn peek(self: Head, at_depth: u8) ?u8 {
@@ -1298,7 +1298,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 }
 
                 pub fn range(self: Head) u8 {
-                    return self.branch_depth - @minimum(self.branch_depth, infix_len);
+                    return self.branch_depth - @min(self.branch_depth, infix_len);
                 }
 
                 pub fn peek(self: Head, at_depth: u8) ?u8 {
@@ -1513,7 +1513,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 return child;
             }
 
-            const child_range = @maximum(start_depth, child.range());
+            const child_range = @max(start_depth, child.range());
 
             const child_or_raised = if(child_range < branch_depth) child.initAt(child_range, key)
                                     else child;
@@ -1681,7 +1681,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 }
 
                 pub fn range(self: Head) u8 {
-                    return self.branch_depth - @minimum(self.branch_depth, infix_len);
+                    return self.branch_depth - @min(self.branch_depth, infix_len);
                 }
 
                 pub fn peek(self: Head, at_depth: u8) ?u8 {
@@ -1811,7 +1811,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
             }
 
             pub fn init(start_depth: u8, key: [key_length]u8, value: Value) Head {
-                const actual_start_depth = @maximum(start_depth, max_start_depth);
+                const actual_start_depth = @max(start_depth, max_start_depth);
 
                 var new_head = Head{ .start_depth = actual_start_depth, .value = value };
 
