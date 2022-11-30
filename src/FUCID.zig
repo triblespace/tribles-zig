@@ -1,6 +1,7 @@
 const std = @import("std");
 
-var next_id:[32]u8 = undefined;
+var counter: u64 = 0;
+var randomness:[32]u8 = undefined;
 
 pub fn init(rnd: std.rand.Random) void {
     rnd.bytes(&next_id);
@@ -10,16 +11,14 @@ pub const FUCID = extern struct {
     data: [32]u8,
 
     pub fn init() FUCID {
-        const id = next_id;
+        const next_id = randomness;
+        var counter_bytes: [8]u8 = undefined;
+        std.mem.writeIntBig(i64, &counter_bytes, counter);
 
-        var i: usize = 32;
-        while(0 < i and id[i-1] == 255):(i -= 1) {
-            next_id[i-1] = 0;
+        for(counter_bytes) |b, i| {
+            next_id[24 + i] ^= b;
         }
-        if(i == 0) i = 32;
-
-        next_id[i-1] += 1;
-
+        
         return FUCID{.data = next_id};
     }
 
