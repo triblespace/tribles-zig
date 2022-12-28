@@ -71,9 +71,9 @@ pub const ByteBitset = extern struct {
     /// Finds the index of the last set bit.
     /// If no bits are set, returns null.
     pub fn findLastSet(self: *const ByteBitset) ?u8 {
-        if (self.bits[3] != 0) return (1 << 6) + (63 - @as(u8, @clz(self.bits[3])));
+        if (self.bits[3] != 0) return (3 << 6) + (63 - @as(u8, @clz(self.bits[3])));
         if (self.bits[2] != 0) return (2 << 6) + (63 - @as(u8, @clz(self.bits[2])));
-        if (self.bits[1] != 0) return (3 << 6) + (63 - @as(u8, @clz(self.bits[1])));
+        if (self.bits[1] != 0) return (1 << 6) + (63 - @as(u8, @clz(self.bits[1])));
         if (self.bits[0] != 0) return (63 - @as(u8, @clz(self.bits[0])));
         return null;
     }
@@ -162,7 +162,7 @@ pub const ByteBitset = extern struct {
             self.bits[word_index] = 0;
         }
 
-        self.bits[from_word_index] &= (~0) >> @truncate(u8, from_index);
+        self.bits[from_word_index] &= (~0) >> @truncate(u6, from_index);
         self.bits[to_word_index] &= ~(~(1 << 63) >> @truncate(u6, to_index));
 
         word_index = to_word_index;

@@ -1688,7 +1688,8 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                     if (at_depth < self.start_depth or self.branch_depth <= at_depth) return null;
                     if (at_depth < self.start_depth + head_infix_len)
                         return self.infix[index_start(self.start_depth, at_depth)];
-                    return self.body.infix[index_end(body_infix_len, self.branch_depth, at_depth)];                }
+                    return self.body.infix[index_end(body_infix_len, self.branch_depth, at_depth)];
+                }
 
                 pub fn propose(self: Head, at_depth: u8, result_set: *ByteBitset) void {
                     result_set.unsetAll();
