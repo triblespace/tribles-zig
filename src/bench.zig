@@ -1,5 +1,3 @@
-const clap = @import("./deps/zig-clap/clap.zig");
-
 const std = @import("std");
 const testing = std.testing;
 const time = std.time;
@@ -21,41 +19,21 @@ const change_prob = 0.1;
 const PACT = pact.PACT(&[_]u8{16, 16, 32}, u32);
 
 pub fn main() !void {
-    const params = comptime clap.parseParamsComptime(
-        \\-h, --help             Display this help and exit.
-        \\-n, --number <usize>   An option parameter, which takes a value.
-        \\
-    );
+    const n = 1000000;
+    pact.init();
+    
+    //var prng = std.rand.DefaultPrng.init(0);
+    //var rnd = prng.random();
 
-    // Initalize our diagnostics, which can be used for reporting useful errors.
-    // This is optional. You can also pass `.{}` to `clap.parse` if you don't
-    // care about the extra information `Diagnostics` provides.
-    var diag = clap.Diagnostic{};
-    var res = clap.parse(clap.Help, &params, clap.parsers.default, .{
-        .diagnostic = &diag,
-    }) catch |err| {
-        // Report useful error and exit
-        diag.report(std.io.getStdErr().writer(), err) catch {};
-        return err;
-    };
-    defer res.deinit();
-
-    if (res.args.number) |n| {
-        pact.init();
-        
-        //var prng = std.rand.DefaultPrng.init(0);
-        //var rnd = prng.random();
-
-        //FUCID.init(rnd);
-        
-        //try benchmark_pact_small_write(n);
-        //try benchmark_pact_cursor_iterate(n);
-        //try benchmark_pact_write(n);
-        try benchmark_tribleset_write(n);
-        //try benchmark_commit(n);
-        //try benchmark_hashing(n);
-        //try benchmark_std(n);
-    }
+    //FUCID.init(rnd);
+    
+    //try benchmark_pact_small_write(n);
+    //try benchmark_pact_cursor_iterate(n);
+    //try benchmark_pact_write(n);
+    try benchmark_tribleset_write(n);
+    //try benchmark_commit(n);
+    //try benchmark_hashing(n);
+    //try benchmark_std(n);
 }
 
 pub fn benchmark_tribleset_write(data_size: usize) !void {

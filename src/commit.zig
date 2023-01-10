@@ -61,7 +61,7 @@ pub const Commit = struct {
         if(trible_count == 0) return error.EmptyCommit;
         const size = header_size + (trible_count * Trible.size);
 
-        const allocation = try allocator.allocAdvanced(u8, Trible.size, size, .exact);
+        const allocation = try allocator.alignedAlloc(u8, Trible.size, size);
         const self = Commit{.data = allocation};
 
         std.mem.copy(u8, self.data[16..48], key_pair.public_key[0..]);

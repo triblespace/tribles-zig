@@ -795,7 +795,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
 
 
             pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
+                const allocation = try allocator.alignedAlloc(u8, cache_line_size, @sizeOf(Body));
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                 new_body.* = Body{};
 
@@ -974,7 +974,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
             }
 
             fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
+                const allocation = try allocator.alignedAlloc(u8, cache_line_size, @sizeOf(Body));
                 const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                 new_body.* = self.body.*;
@@ -998,7 +998,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
             fn grow(self: Head, allocator: std.mem.Allocator) allocError!Node {
                 const bucket = self.body.bucket;
 
-                const allocation: []align(cache_line_size) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), cache_line_size, @sizeOf(GrownHead.Body), .exact);
+                const allocation: []align(cache_line_size) u8 = try allocator.alignedAlloc(std.mem.span(std.mem.asBytes(self.body)), cache_line_size, @sizeOf(GrownHead.Body));
                 const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
 
                 new_body.buckets[0] = bucket;
@@ -1229,7 +1229,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
+                    const allocation = try allocator.alignedAlloc(u8, cache_line_size, @sizeOf(Body));
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = Body{};
 
@@ -1391,7 +1391,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, cache_line_size, @sizeOf(Body), .exact);
+                    const allocation = try allocator.alignedAlloc(u8, cache_line_size, @sizeOf(Body));
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                     new_body.* = self.body.*;
@@ -1418,7 +1418,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                         return @bitCast(Node, self);
                     } else {
                         //std.debug.print("Grow:{*}\n {} -> {} : {} -> {} \n", .{ self.body, Head, GrownHead, @sizeOf(Body), @sizeOf(GrownHead.Body) });
-                        const allocation: []align(cache_line_size) u8 = try allocator.reallocAdvanced(std.mem.span(std.mem.asBytes(self.body)), cache_line_size, @sizeOf(GrownHead.Body), .exact);
+                        const allocation: []align(cache_line_size) u8 = try allocator.realloc(self.body, @sizeOf(GrownHead.Body));
                         const new_body = std.mem.bytesAsValue(GrownHead.Body, allocation[0..@sizeOf(GrownHead.Body)]);
                         //std.debug.print("Growed:{*}\n", .{new_body});
                         new_body.buckets[new_body.buckets.len / 2 .. new_body.buckets.len].* = new_body.buckets[0 .. new_body.buckets.len / 2].*;
@@ -1584,7 +1584,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 }
 
                 pub fn init(start_depth: u8, branch_depth: u8, key: [key_length]u8, child: Node, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+                    const allocation = try allocator.alignedAlloc(u8, @alignOf(Body), @sizeOf(Body));
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
 
                     new_body.* = Body{ .child = child };
@@ -1627,7 +1627,7 @@ pub fn PACT(comptime segs: []const u8, comptime Value: type) type {
                 }
 
                 fn copy(self: Head, allocator: std.mem.Allocator) allocError!Head {
-                    const allocation = try allocator.allocAdvanced(u8, @alignOf(Body), @sizeOf(Body), .exact);
+                    const allocation = try allocator.alignedAlloc(u8, @alignOf(Body), @sizeOf(Body));
                     const new_body = std.mem.bytesAsValue(Body, allocation[0..@sizeOf(Body)]);
                     new_body.* = self.body.*;
                     new_body.ref_count = 1;
